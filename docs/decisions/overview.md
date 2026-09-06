@@ -35,7 +35,7 @@ Tinymist remains the Typst language server for syntax, formatting, completion, c
 
 ## Design status
 
-The version-one architecture is accepted. Implementation has started with archive initialization and Zettel creation. See [Version-one architecture](v1-architecture.md) for the central decision and its research basis, and [System](../SYSTEM.md) for the currently implemented behavior.
+The version-one architecture is accepted and implementation is underway. See [Version-one architecture](v1-architecture.md) for the central decision and its research basis, and [System](../SYSTEM.md) for the currently implemented behavior.
 
 - [Archive](archive.md)
 - [Zettel](zettel.md)

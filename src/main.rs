@@ -1,9 +1,11 @@
 use std::error::Error;
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use zk::archive::Archive;
+use zk::provider::Provider;
 
 #[derive(Debug, Parser)]
 #[command(name = "zk", version, about = "Manage a Typst Zettelkasten archive")]
@@ -23,6 +25,18 @@ enum Command {
 
     /// Create a Zettel with the next available timestamp ID.
     New,
+
+    /// Emit a complete disk-backed archive graph.
+    Graph {
+        /// Snapshot serialization format.
+        #[arg(long, value_enum)]
+        format: GraphFormat,
+    },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum GraphFormat {
+    Json,
 }
 
 fn main() -> ExitCode {
@@ -47,6 +61,18 @@ fn run() -> Result<(), Box<dyn Error>> {
             let path = archive.create_zettel()?;
             let display = path.strip_prefix(archive.root()).unwrap_or(&path);
             println!("{}", display.display());
+        }
+        Command::Graph {
+            format: GraphFormat::Json,
+        } => {
+            let current = std::env::current_dir()?;
+            let archive = Archive::discover(current)?;
+            let provider = Provider::load(&archive)?;
+            let snapshot = provider.snapshot();
+            let stdout = std::io::stdout();
+            let mut output = stdout.lock();
+            serde_json::to_writer_pretty(&mut output, &snapshot)?;
+            output.write_all(b"\n")?;
         }
     }
 

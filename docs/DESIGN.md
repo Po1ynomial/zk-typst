@@ -234,13 +234,17 @@ Bundled live consumers operate on provider revisions in-process. Exact Rust modu
 zk graph --format json
 ```
 
-emits one complete disk-backed snapshot containing:
+emits one complete disk-backed snapshot. Provider schema 1 has these top-level fields:
 
-- provider schema version;
-- session revision;
-- nodes and metadata;
-- grouped links, resolution, and byte ranges;
-- diagnostics.
+- `schema_version`
+- `revision`
+- `nodes`
+- `links`
+- `diagnostics`
+
+Nodes contain the ID, archive-relative path, generation, optional title and abstract `MarkupValue` objects, keywords, and category. Links contain the source, target, resolution, and every occurrence range. Diagnostics contain the path, stable code, severity, message, and an optional range.
+
+Ranges serialize as `start` and `end` UTF-8 byte offsets. Nodes sort by ID. Links sort by source and target. Diagnostics sort by path and range. Missing or malformed metadata serializes as `null`.
 
 The provider schema version is independent of `zk.toml`'s archive format version. A CLI session revision is not a durable archive identifier.
 
