@@ -4,7 +4,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use serde::Serialize;
+use thiserror::Error;
 use zk::archive::Archive;
+use zk::model::{Diagnostic, Severity};
 use zk::provider::Provider;
 
 #[derive(Debug, Parser)]
@@ -26,6 +29,25 @@ enum Command {
     /// Create a Zettel with the next available timestamp ID.
     New,
 
+    /// Check archive integrity.
+    Check {
+        /// Diagnostic output format.
+        #[arg(long, value_enum, default_value = "text")]
+        format: CheckFormat,
+    },
+
+    /// Query saved archive state.
+    Query {
+        #[command(subcommand)]
+        query: QueryCommand,
+    },
+
+    /// Remove a Zettel when it has no incoming references.
+    Remove {
+        /// Zettel ID to remove.
+        id: String,
+    },
+
     /// Emit a complete disk-backed archive graph.
     Graph {
         /// Snapshot serialization format.
@@ -35,13 +57,37 @@ enum Command {
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
+enum CheckFormat {
+    Text,
+    Json,
+}
+
+#[derive(Debug, Subcommand)]
+enum QueryCommand {
+    /// Return one Zettel and its metadata.
+    Node { id: String },
+
+    /// Return outgoing links for one Zettel.
+    Links { id: String },
+
+    /// Return incoming links for one Zettel.
+    Backlinks { id: String },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
 enum GraphFormat {
     Json,
 }
 
+#[derive(Debug, Error)]
+enum CliError {
+    #[error("Zettel `{0}` does not exist")]
+    MissingZettel(String),
+}
+
 fn main() -> ExitCode {
     match run() {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(error) => {
             eprintln!("zk: {error}");
             ExitCode::FAILURE
@@ -49,32 +95,133 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<(), Box<dyn Error>> {
+fn run() -> Result<ExitCode, Box<dyn Error>> {
     match Cli::parse().command {
         Command::Init { path } => {
             let archive = Archive::init(path)?;
             println!("{}", archive.root().display());
         }
         Command::New => {
-            let current = std::env::current_dir()?;
-            let archive = Archive::discover(current)?;
+            let archive = discover_archive()?;
             let path = archive.create_zettel()?;
+            let display = path.strip_prefix(archive.root()).unwrap_or(&path);
+            println!("{}", display.display());
+        }
+        Command::Check { format } => {
+            let provider = load_provider()?;
+            match format {
+                CheckFormat::Text => print_diagnostics(provider.diagnostics()),
+                CheckFormat::Json => write_json(provider.diagnostics())?,
+            }
+            if provider
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| diagnostic.severity == Severity::Error)
+            {
+                return Ok(ExitCode::FAILURE);
+            }
+        }
+        Command::Query { query } => {
+            let provider = load_provider()?;
+            match query {
+                QueryCommand::Node { id } => {
+                    let node = provider
+                        .node(&id)
+                        .ok_or_else(|| CliError::MissingZettel(id.clone()))?;
+                    write_json(node)?;
+                }
+                QueryCommand::Links { id } => {
+                    require_node(&provider, &id)?;
+                    write_json(&provider.links_from(&id))?;
+                }
+                QueryCommand::Backlinks { id } => {
+                    require_node(&provider, &id)?;
+                    write_json(&provider.links_to(&id))?;
+                }
+            }
+        }
+        Command::Remove { id } => {
+            let archive = discover_archive()?;
+            let provider = Provider::load(&archive)?;
+            require_node(&provider, &id)?;
+            let incoming = provider.links_to(&id);
+            if !incoming.is_empty() {
+                eprintln!("cannot remove Zettel `{id}`; incoming references exist:");
+                for link in incoming {
+                    let path = &provider
+                        .node(&link.source)
+                        .expect("link sources are provider nodes")
+                        .path;
+                    for span in link.spans {
+                        eprintln!("  {path}:{}..{}", span.start, span.end);
+                    }
+                }
+                return Ok(ExitCode::FAILURE);
+            }
+            let path = archive.remove_zettel(&id)?;
             let display = path.strip_prefix(archive.root()).unwrap_or(&path);
             println!("{}", display.display());
         }
         Command::Graph {
             format: GraphFormat::Json,
         } => {
-            let current = std::env::current_dir()?;
-            let archive = Archive::discover(current)?;
-            let provider = Provider::load(&archive)?;
-            let snapshot = provider.snapshot();
-            let stdout = std::io::stdout();
-            let mut output = stdout.lock();
-            serde_json::to_writer_pretty(&mut output, &snapshot)?;
-            output.write_all(b"\n")?;
+            let provider = load_provider()?;
+            write_json(&provider.snapshot())?;
         }
     }
 
+    Ok(ExitCode::SUCCESS)
+}
+
+fn discover_archive() -> Result<Archive, Box<dyn Error>> {
+    Ok(Archive::discover(std::env::current_dir()?)?)
+}
+
+fn load_provider() -> Result<Provider, Box<dyn Error>> {
+    Ok(Provider::load(&discover_archive()?)?)
+}
+
+fn require_node<'a>(
+    provider: &'a Provider,
+    id: &str,
+) -> Result<&'a zk::model::ZettelNode, CliError> {
+    provider
+        .node(id)
+        .ok_or_else(|| CliError::MissingZettel(id.to_owned()))
+}
+
+fn write_json<T: Serialize + ?Sized>(value: &T) -> Result<(), Box<dyn Error>> {
+    let stdout = std::io::stdout();
+    let mut output = stdout.lock();
+    serde_json::to_writer_pretty(&mut output, value)?;
+    output.write_all(b"\n")?;
     Ok(())
+}
+
+fn print_diagnostics(diagnostics: &[Diagnostic]) {
+    let mut errors = 0;
+    let mut warnings = 0;
+    for diagnostic in diagnostics {
+        let severity = match diagnostic.severity {
+            Severity::Error => {
+                errors += 1;
+                "error"
+            }
+            Severity::Warning => {
+                warnings += 1;
+                "warning"
+            }
+        };
+        match diagnostic.range {
+            Some(range) => println!(
+                "{severity}: {}:{}..{}: [{}] {}",
+                diagnostic.path, range.start, range.end, diagnostic.code, diagnostic.message
+            ),
+            None => println!(
+                "{severity}: {}: [{}] {}",
+                diagnostic.path, diagnostic.code, diagnostic.message
+            ),
+        }
+    }
+    println!("{errors} error(s), {warnings} warning(s)");
 }

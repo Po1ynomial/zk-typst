@@ -2,7 +2,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use chrono::{Datelike, Duration, Local, NaiveDateTime};
+use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime};
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -44,6 +44,9 @@ pub enum ArchiveError {
 
     #[error("no Zettel ID is available in the supported century")]
     IdSpaceExhausted,
+
+    #[error("invalid Zettel ID `{0}`; expected a valid `YYMMDDHHmm` timestamp")]
+    InvalidId(String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -135,6 +138,15 @@ impl Archive {
         self.create_zettel_at(Local::now().naive_local())
     }
 
+    pub fn remove_zettel(&self, id: &str) -> Result<PathBuf, ArchiveError> {
+        if !is_zettel_id(id) {
+            return Err(ArchiveError::InvalidId(id.to_owned()));
+        }
+        let path = self.root.join(ZETTEL_DIR).join(format!("{id}.typ"));
+        fs::remove_file(&path).map_err(|source| io_error(&path, source))?;
+        Ok(path)
+    }
+
     fn create_zettel_at(&self, start: NaiveDateTime) -> Result<PathBuf, ArchiveError> {
         self.validate_layout()?;
         let mut candidate = start;
@@ -160,6 +172,20 @@ impl Archive {
             }
         }
     }
+}
+
+pub fn is_zettel_id(id: &str) -> bool {
+    if id.len() != 10 || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return false;
+    }
+    let year = 2000 + id[0..2].parse::<i32>().expect("digits checked");
+    let month = id[2..4].parse::<u32>().expect("digits checked");
+    let day = id[4..6].parse::<u32>().expect("digits checked");
+    let hour = id[6..8].parse::<u32>().expect("digits checked");
+    let minute = id[8..10].parse::<u32>().expect("digits checked");
+    NaiveDate::from_ymd_opt(year, month, day)
+        .and_then(|date| date.and_hms_opt(hour, minute, 0))
+        .is_some()
 }
 
 fn validate_manifest(path: &Path) -> Result<(), ArchiveError> {
@@ -202,6 +228,15 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn validates_timestamp_ids() {
+        assert!(is_zettel_id("2603231410"));
+        assert!(is_zettel_id("2402292359"));
+        assert!(!is_zettel_id("2302292359"));
+        assert!(!is_zettel_id("2613322460"));
+        assert!(!is_zettel_id("not-an-id"));
+    }
 
     #[test]
     fn initializes_the_fixed_layout() {

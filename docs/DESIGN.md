@@ -254,6 +254,8 @@ Version one has no public cross-process change stream.
 
 `zk` is noninteractive and scriptable. It initializes archives, allocates Zettel, checks invariants, prevents unsafe removal, serves targeted queries, emits graph snapshots, and runs the language server.
 
+`zk check` defaults to text diagnostics and supports a JSON diagnostic array through `--format json`. Errors produce a failing exit status; warnings do not. `zk query node`, `zk query links`, and `zk query backlinks` emit JSON. `zk remove` reports every incoming byte range when it refuses deletion.
+
 It does not launch Neovim, provide a TUI, publish documents, compile Typst, or silently rewrite Zettel bodies.
 
 ## LSP and Neovim responsibilities

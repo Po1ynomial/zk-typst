@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use rayon::prelude::*;
 use thiserror::Error;
 
-use crate::archive::{Archive, ArchiveError};
+use crate::archive::{Archive, ArchiveError, is_zettel_id};
 use crate::extract::{ExtractedNode, extract};
 use crate::model::{
     ByteRange, Diagnostic, GraphSnapshot, Link, LinkResolution, PROVIDER_SCHEMA_VERSION, ZettelNode,
@@ -50,12 +50,13 @@ pub struct Provider {
 impl Provider {
     pub fn load(archive: &Archive) -> Result<Self, ProviderError> {
         archive.validate_layout()?;
-        let paths = canonical_paths(archive.root())?;
-        let extracted: Result<Vec<_>, _> = paths
+        let discovered = discover_paths(archive.root())?;
+        let extracted: Result<Vec<_>, _> = discovered
+            .canonical
             .par_iter()
             .map(|(id, path)| load_zettel(archive.root(), id, path))
             .collect();
-        Ok(Self::from_extracted(extracted?))
+        Ok(Self::from_extracted(extracted?, discovered.diagnostics))
     }
 
     pub fn revision(&self) -> u64 {
@@ -68,6 +69,13 @@ impl Provider {
 
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
+    }
+
+    pub fn node(&self, id: &str) -> Option<&ZettelNode> {
+        self.nodes
+            .binary_search_by(|node| node.id.as_str().cmp(id))
+            .ok()
+            .map(|index| &self.nodes[index])
     }
 
     pub fn links_from(&self, id: &str) -> Vec<Link> {
@@ -104,7 +112,7 @@ impl Provider {
         }
     }
 
-    fn from_extracted(extracted: Vec<ExtractedNode>) -> Self {
+    fn from_extracted(extracted: Vec<ExtractedNode>, mut diagnostics: Vec<Diagnostic>) -> Self {
         let node_ids: BTreeSet<_> = extracted
             .iter()
             .map(|extracted| extracted.node.id.as_str())
@@ -169,8 +177,42 @@ impl Provider {
             links.last_mut().expect("link exists").span_len += 1;
         }
 
+        let node_paths: HashMap<_, _> = extracted
+            .iter()
+            .map(|node| (node.node.id.as_str(), node.node.path.as_str()))
+            .collect();
+        for link in &links {
+            if link.resolution != LinkResolution::Missing {
+                continue;
+            }
+            let source = ids[link.source as usize].as_str();
+            let target = ids[link.target as usize].as_str();
+            let start = link.span_start as usize;
+            let end = start + link.span_len as usize;
+            for span in &spans[start..end] {
+                diagnostics.push(Diagnostic {
+                    path: node_paths[source].to_owned(),
+                    code: "reference.dangling".to_owned(),
+                    severity: crate::model::Severity::Error,
+                    message: format!("reference target `{target}` does not exist"),
+                    range: Some(*span),
+                });
+            }
+        }
+        for extracted_node in &extracted {
+            let id = id_indices[extracted_node.node.id.as_str()] as usize;
+            if outgoing[id].is_empty() && incoming[id].is_empty() {
+                diagnostics.push(Diagnostic {
+                    path: extracted_node.node.path.clone(),
+                    code: "graph.orphan".to_owned(),
+                    severity: crate::model::Severity::Warning,
+                    message: "Zettel has no incoming or outgoing links".to_owned(),
+                    range: None,
+                });
+            }
+        }
+
         let mut nodes = Vec::with_capacity(extracted.len());
-        let mut diagnostics = Vec::new();
         for extracted_node in extracted {
             nodes.push(extracted_node.node);
             diagnostics.extend(extracted_node.diagnostics);
@@ -215,32 +257,54 @@ impl Provider {
     }
 }
 
-fn canonical_paths(root: &Path) -> Result<Vec<(String, PathBuf)>, ProviderError> {
+struct DiscoveredPaths {
+    canonical: Vec<(String, PathBuf)>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+fn discover_paths(root: &Path) -> Result<DiscoveredPaths, ProviderError> {
     let directory = root.join("zettel");
     let entries = fs::read_dir(&directory).map_err(|source| io_error(&directory, source))?;
-    let mut paths = Vec::new();
+    let mut canonical = Vec::new();
+    let mut diagnostics = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|source| io_error(&directory, source))?;
         let path = entry.path();
+        let relative = archive_relative(root, &path);
         let file_type = entry
             .file_type()
             .map_err(|source| io_error(&path, source))?;
         if !file_type.is_file() {
+            diagnostics.push(Diagnostic {
+                path: relative,
+                code: "archive.layout".to_owned(),
+                severity: crate::model::Severity::Error,
+                message: "only regular Zettel files are allowed in `zettel/`".to_owned(),
+                range: None,
+            });
             continue;
         }
-        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-            continue;
-        };
-        let Some(id) = name.strip_suffix(".typ") else {
-            continue;
-        };
-        if id.len() != 10 || !id.bytes().all(|byte| byte.is_ascii_digit()) {
-            continue;
+        let id = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.strip_suffix(".typ"))
+            .filter(|id| is_zettel_id(id));
+        match id {
+            Some(id) => canonical.push((id.to_owned(), path)),
+            None => diagnostics.push(Diagnostic {
+                path: relative,
+                code: "archive.filename".to_owned(),
+                severity: crate::model::Severity::Error,
+                message: "Zettel filename must match `YYMMDDHHmm.typ`".to_owned(),
+                range: None,
+            }),
         }
-        paths.push((id.to_owned(), path));
     }
-    paths.sort_by(|left, right| left.0.cmp(&right.0));
-    Ok(paths)
+    canonical.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(DiscoveredPaths {
+        canonical,
+        diagnostics,
+    })
 }
 
 fn load_zettel(root: &Path, id: &str, path: &Path) -> Result<ExtractedNode, ProviderError> {
@@ -248,13 +312,14 @@ fn load_zettel(root: &Path, id: &str, path: &Path) -> Result<ExtractedNode, Prov
     if u32::try_from(source.len()).is_err() {
         return Err(ProviderError::SourceTooLarge(path.to_path_buf()));
     }
-    let relative = path
-        .strip_prefix(root)
-        .expect("canonical paths are beneath the archive root");
-    let relative = relative
+    Ok(extract(id, &archive_relative(root, path), &source))
+}
+
+fn archive_relative(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .expect("archive paths are beneath the archive root")
         .to_string_lossy()
-        .replace(std::path::MAIN_SEPARATOR, "/");
-    Ok(extract(id, &relative, &source))
+        .replace(std::path::MAIN_SEPARATOR, "/")
 }
 
 fn io_error(path: &Path, source: std::io::Error) -> ProviderError {
@@ -318,6 +383,13 @@ mod tests {
             .find(|link| link.target == "9999999999")
             .unwrap();
         assert_eq!(missing.resolution, LinkResolution::Missing);
+        let dangling = provider
+            .diagnostics()
+            .iter()
+            .find(|diagnostic| diagnostic.code == "reference.dangling")
+            .expect("dangling diagnostic");
+        assert_eq!(dangling.path, "zettel/2603231410.typ");
+        assert_eq!(dangling.range, Some(missing.spans[0]));
 
         assert_eq!(provider.links_from("2603231410").len(), 2);
         assert_eq!(provider.links_to("2603231411").len(), 1);
@@ -325,17 +397,30 @@ mod tests {
     }
 
     #[test]
-    fn ignores_noncanonical_files() {
+    fn diagnoses_noncanonical_files() {
         let temporary = tempdir().unwrap();
         let archive = Archive::init(temporary.path()).unwrap();
         write_zettel(archive.root(), "2603231410", "body");
         fs::write(archive.root().join("zettel/readme.typ"), "not a Zettel").unwrap();
         fs::write(archive.root().join("zettel/2603231410.txt"), "not Typst").unwrap();
+        fs::write(
+            archive.root().join("zettel/2602999999.typ"),
+            "invalid timestamp",
+        )
+        .unwrap();
 
         let provider = Provider::load(&archive).unwrap();
 
         assert_eq!(provider.nodes().len(), 1);
         assert_eq!(provider.nodes()[0].id, "2603231410");
+        assert_eq!(
+            provider
+                .diagnostics()
+                .iter()
+                .filter(|diagnostic| diagnostic.code == "archive.filename")
+                .count(),
+            3
+        );
     }
 
     #[test]

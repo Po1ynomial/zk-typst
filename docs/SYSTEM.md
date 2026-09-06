@@ -23,7 +23,7 @@ The generated Zettel has the required import, show rule, labelled level-one head
 
 ### Disk-backed provider
 
-`zk graph --format json` loads saved canonical `zettel/ID.typ` files and writes a complete JSON snapshot to standard output. Files with noncanonical names do not enter the provider graph.
+`zk graph --format json` loads saved canonical `zettel/ID.typ` files and writes a complete JSON snapshot to standard output. Files with noncanonical names do not enter the provider graph and produce archive diagnostics.
 
 The provider parses files concurrently with `typst-syntax` 0.15.1. It extracts the restricted direct metadata forms without evaluating Typst. Title and abstract values contain their exact inner source, deterministic text projection, and half-open UTF-8 byte range. Malformed fields remain `null` and produce snapshot diagnostics.
 
@@ -45,15 +45,40 @@ Provider schema 1 has this top-level shape:
 
 Nodes are ordered by ID. Links are ordered by source and target ID. Diagnostics are ordered by path and source range. A fresh disk-backed provider starts at revision 1, so this revision is not a durable archive identifier.
 
+### Integrity and shell operations
+
+`zk check` prints diagnostics and exits with status 1 when any error exists. Warnings do not fail the command. The default text output includes the path, byte range when available, stable diagnostic code, and message. `zk check --format json` emits the diagnostic array used in graph snapshots.
+
+Checks cover:
+
+- noncanonical files or entries under `zettel/`;
+- Typst syntax errors;
+- missing, malformed, repeated, or misplaced metadata;
+- filename and heading-label mismatches;
+- dangling reference occurrences;
+- Zettel with no incoming or outgoing links, reported as warnings.
+
+The query commands write JSON to standard output:
+
+```text
+zk query node <ID>
+zk query links <ID>
+zk query backlinks <ID>
+```
+
+A node query returns metadata for one Zettel. Link and backlink queries return grouped links with every authored byte range. Missing node IDs fail the command.
+
+`zk remove <ID>` deletes a canonical Zettel only when it has no incoming references. A blocked removal exits with status 1, leaves the file untouched, and prints every incoming source path and byte range. A successful removal prints the deleted archive-relative path.
+
 ## Code entry points
 
 - `src/main.rs` defines the command-line interface, JSON output, and process exit behavior.
-- `src/archive.rs` implements initialization, root discovery, manifest validation, layout validation, and collision-safe Zettel creation.
+- `src/archive.rs` implements initialization, root discovery, manifest validation, layout validation, timestamp-ID validation, collision-safe creation, and file removal.
 - `src/extract.rs` extracts metadata, literal references, source ranges, and syntax diagnostics from one parsed Zettel.
 - `src/model.rs` defines the public node, link, diagnostic, and snapshot data shapes.
-- `src/provider.rs` loads files concurrently, interns IDs, builds grouped links and adjacency, and produces snapshots.
+- `src/provider.rs` loads files concurrently, interns IDs, builds grouped links and adjacency, derives archive integrity diagnostics, and produces snapshots.
 - `src/templates.rs` contains the canonical manifest, Typst library, and Zettel templates.
-- `tests/cli.rs` exercises archive initialization, nested-directory authoring, and JSON graph output through the executable.
+- `tests/cli.rs` exercises authoring, graph output, checking, queries, and guarded removal through the executable.
 
 ## Inspection
 
@@ -72,7 +97,7 @@ Inspect the provider with a generated archive:
 scripts/inspect-graph.sh
 ```
 
-The script builds `zk`, creates five canonical Zettel plus one ignored noncanonical file, and checks metadata extraction, malformed metadata, syntax recovery, resolved and missing links, grouped occurrences, ignored raw and commented references, and exact byte ranges. It prints the complete JSON snapshot after the assertions pass.
+The script builds `zk`, creates five canonical Zettel plus one diagnosed noncanonical file, and checks metadata extraction, malformed metadata, syntax recovery, resolved and missing links, grouped occurrences, ignored raw and commented references, and exact byte ranges. It prints the complete JSON snapshot after the assertions pass.
 
 Preserve the generated archive and snapshot for manual inspection:
 
@@ -82,10 +107,18 @@ scripts/inspect-graph.sh --keep
 
 The script prints the retained archive path to standard error. `KEEP_TMP=1 scripts/inspect-graph.sh` provides the same behavior.
 
+Inspect checking, queries, and removal with another generated archive:
+
+```sh
+scripts/inspect-integrity.sh
+```
+
+This script demonstrates failing and repaired checks, node and relation queries, blocked removal with incoming locations, and successful removal. Pass `--keep` or set `KEEP_TMP=1` to retain its archive.
+
 ## Current limitations
 
-The provider reads saved files only. It has no filesystem watcher or open-buffer overlays. The executable does not yet expose `check`, targeted queries, guarded removal, or a language server. The Neovim adapter is also not implemented.
+The provider reads saved files only. It has no filesystem watcher or open-buffer overlays. The executable does not yet run a language server, and the Neovim adapter is not implemented.
 
-Snapshot diagnostics currently cover Typst parse errors and the direct metadata source contract. Dangling links have `resolution: "missing"` but do not yet emit integrity diagnostics. Noncanonical files are ignored rather than diagnosed. Orphan checks and removal policy belong to the next implementation slice.
+Queries currently emit JSON only. CLI locations use UTF-8 byte ranges rather than line and column coordinates. Removal does not edit incoming references and never rewrites Zettel bodies.
 
 The initial category dictionary contains `thoughts`, `physics`, and `coding`. Category and keyword policy remain deferred product decisions. Archives may edit their user-owned `lib/zettel.typ`, but `zk` does not migrate it yet.

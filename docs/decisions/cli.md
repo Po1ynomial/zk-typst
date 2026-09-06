@@ -28,11 +28,11 @@ Allocate an ID and create a Zettel from the standard template.
 
 ### remove
 
-Remove a Zettel. Refuse while incoming references exist and print their locations.
+Remove a Zettel. Refuse while incoming references exist and print each source path and UTF-8 byte range. Successful removal prints the deleted archive-relative path.
 
 ### check
 
-Verify archive-wide invariants:
+Verify archive-wide invariants. Text diagnostics are the default; `--format json` emits the provider diagnostic array. Errors fail the command, while warnings do not.
 
 - dangling and stale references;
 - duplicate IDs;
@@ -42,7 +42,13 @@ Verify archive-wide invariants:
 
 ### query
 
-Return targeted metadata, links, and backlinks for shell use.
+Return targeted metadata, links, and backlinks as JSON for shell use:
+
+```text
+zk query node <ID>
+zk query links <ID>
+zk query backlinks <ID>
+```
 
 ### graph
 
