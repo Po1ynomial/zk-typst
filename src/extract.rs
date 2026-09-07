@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use typst_syntax::ast::{self, Arg, AstNode, Expr, ImportItem, Imports};
-use typst_syntax::{LinkedNode, SyntaxKind, parse};
+use typst_syntax::{LinkedNode, Source, SyntaxKind, SyntaxNode, parse};
 
 use crate::model::{ByteRange, Diagnostic, MarkupValue, Severity, ZettelNode};
 
@@ -21,15 +21,34 @@ pub(crate) struct ExtractedNode {
 }
 
 pub(crate) fn extract(id: &str, path: &str, source: &str) -> ExtractedNode {
+    let root = parse(source);
+    extract_root(id, path, source, &root, 1)
+}
+
+pub(crate) fn extract_source(
+    id: &str,
+    path: &str,
+    source: &Source,
+    generation: u64,
+) -> ExtractedNode {
+    extract_root(id, path, source.text(), source.root(), generation)
+}
+
+fn extract_root(
+    id: &str,
+    path: &str,
+    source: &str,
+    root: &SyntaxNode,
+    generation: u64,
+) -> ExtractedNode {
     assert!(
         u32::try_from(source.len()).is_ok(),
         "provider rejects oversized sources before extraction"
     );
 
-    let root = parse(source);
-    let linked_root = LinkedNode::new(&root);
+    let linked_root = LinkedNode::new(root);
     let top_level: Vec<_> = linked_root.children().collect();
-    let mut diagnostics = syntax_diagnostics(path, &root, &linked_root);
+    let mut diagnostics = syntax_diagnostics(path, root, &linked_root);
 
     let imports: Vec<_> = top_level
         .iter()
@@ -171,7 +190,7 @@ pub(crate) fn extract(id: &str, path: &str, source: &str) -> ExtractedNode {
         node: ZettelNode {
             id: id.to_owned(),
             path: path.to_owned(),
-            generation: 1,
+            generation,
             title,
             abstract_value,
             keywords: keyword_values,

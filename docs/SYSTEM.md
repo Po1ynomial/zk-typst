@@ -70,15 +70,26 @@ A node query returns metadata for one Zettel. Link and backlink queries return g
 
 `zk remove <ID>` deletes a canonical Zettel only when it has no incoming references. A blocked removal exits with status 1, leaves the file untouched, and prints every incoming source path and byte range. A successful removal prints the deleted archive-relative path.
 
+### Live provider sessions
+
+The same `Provider` type supports long-lived editor sessions. `open_buffer` installs full text and a document version. `change_buffer` accepts only newer versions and calls `typst_syntax::Source::replace` for incremental reparsing. Open sources remain in memory; closed-file source and syntax trees do not.
+
+An overlay replaces the corresponding disk node and outgoing links in one graph revision. Incoming adjacency, target resolution, dangling diagnostics, and orphan diagnostics update before consumers see that revision. Opening a canonical path that does not exist on disk creates a session node.
+
+`save_buffer` retains the overlay without reading disk. `refresh_disk` ignores open paths. `close_buffer` drops the overlay, then reloads disk or removes the session node when no disk file exists.
+
+Every scheduled source state receives a generation. `prepare_disk_update` returns parsed work tagged with that generation, and `apply_prepared` rejects it if a newer disk or buffer state has already been scheduled. Accepted replacements increment the graph revision once. Stale document versions, stale generations, saves, and ignored disk events do not increment it.
+
 ## Code entry points
 
 - `src/main.rs` defines the command-line interface, JSON output, and process exit behavior.
 - `src/archive.rs` implements initialization, root discovery, manifest validation, layout validation, timestamp-ID validation, collision-safe creation, and file removal.
 - `src/extract.rs` extracts metadata, literal references, source ranges, and syntax diagnostics from one parsed Zettel.
 - `src/model.rs` defines the public node, link, diagnostic, and snapshot data shapes.
-- `src/provider.rs` loads files concurrently, interns IDs, builds grouped links and adjacency, derives archive integrity diagnostics, and produces snapshots.
+- `src/provider.rs` loads files concurrently, owns mutable graph state, retains open overlays, rejects stale updates, derives integrity diagnostics, and produces snapshots.
 - `src/templates.rs` contains the canonical manifest, Typst library, and Zettel templates.
 - `tests/cli.rs` exercises authoring, graph output, checking, queries, and guarded removal through the executable.
+- `examples/inspect_overlays.rs` drives the in-process live-provider lifecycle used by the overlay inspection script.
 
 ## Inspection
 
@@ -115,9 +126,17 @@ scripts/inspect-integrity.sh
 
 This script demonstrates failing and repaired checks, node and relation queries, blocked removal with incoming locations, and successful removal. Pass `--keep` or set `KEEP_TMP=1` to retain its archive.
 
+Inspect a live provider session:
+
+```sh
+scripts/inspect-overlays.sh
+```
+
+The script creates a disk archive and runs the Rust inspection example through overlay installation, incremental full-text changes, stale version and generation rejection, unsaved-node creation, save precedence, close reload, disk deletion, and disk restoration. It prints the final revision-seven snapshot. Pass `--keep` or set `KEEP_TMP=1` to retain the resulting archive.
+
 ## Current limitations
 
-The provider reads saved files only. It has no filesystem watcher or open-buffer overlays. The executable does not yet run a language server, and the Neovim adapter is not implemented.
+No filesystem watcher calls the disk-refresh API yet. The executable does not yet run a language server, and the Neovim adapter is not implemented.
 
 Queries currently emit JSON only. CLI locations use UTF-8 byte ranges rather than line and column coordinates. Removal does not edit incoming references and never rewrites Zettel bodies.
 

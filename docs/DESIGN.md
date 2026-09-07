@@ -226,7 +226,7 @@ Typst-side `metadata` values may exist as non-authoritative projections for late
 
 ### Internal Rust API
 
-Bundled live consumers operate on provider revisions in-process. Exact Rust module and type boundaries remain implementation details until the first vertical slice establishes them.
+Bundled live consumers operate on provider revisions in-process. The provider exposes node and relation reads, full-text buffer lifecycle methods, disk-update preparation and application, current diagnostics, open `typst-syntax` sources, and complete snapshots. Protocol adapters remain outside the provider.
 
 ### JSON snapshots
 
