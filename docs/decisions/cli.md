@@ -16,6 +16,8 @@ zk lsp
 
 `zk lsp` runs the companion language server over stdio. All subcommands share the parser, archive model, diagnostics, and graph operations.
 
+Commands that require an existing archive accept `--archive PATH`. This explicit path takes precedence over current-directory discovery. Without it, existing upward discovery remains unchanged. `zk init [PATH]` rejects `--archive`, and the CLI stores no persistent personal archive setting.
+
 ## Commands
 
 ### init
@@ -58,6 +60,8 @@ The snapshot contains nodes, grouped links with occurrence ranges and resolution
 ### lsp
 
 Run the language server.
+
+The Neovim adapter may launch it as `zk --archive PATH lsp` for an eagerly selected personal archive.
 
 `export` remains reserved for later link resolution, selected-subgraph extraction, and dependency graph output.
 

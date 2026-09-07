@@ -47,6 +47,20 @@ lib/
 
 Other directories are allowed but have no version-one archive semantics.
 
+## Archive selection
+
+Filesystem discovery remains the default. Tools walk upward from their current path to the nearest `zk.toml`.
+
+The Neovim adapter may also receive `archive` in `require("zk").setup`. The nearest archive above the current buffer wins; otherwise the adapter uses its session fallback. A valid fallback starts one eager, initially unattached `zk lsp` client so search and other archive-level commands work before a Zettel buffer opens.
+
+If a command selects a local archive without a running client, the adapter starts one on demand without attaching the unrelated current buffer.
+
+`:ZkSetArchive [PATH]` reports or replaces the session fallback. A successful switch stops only the previous fallback client. Clients serving open buffers from other local archives remain active. Invalid switches leave current state untouched.
+
+The CLI has no persistent fallback. `--archive PATH` explicitly selects an existing archive and takes precedence over current-directory discovery. `zk init [PATH]` rejects that option.
+
+Neovim expands user and environment expressions in configured paths, resolves relative paths against its current working directory, and canonicalizes valid archives. CLI relative paths resolve against the process working directory.
+
 ## Zettel source contract
 
 A valid Zettel uses direct top-level constructs:
@@ -266,11 +280,15 @@ It does not launch Neovim, provide a TUI, publish documents, compile Typst, or s
 
 The Neovim plugin:
 
+- eagerly starts the configured fallback archive provider;
+- selects local archive clients before the session fallback;
 - routes Zettel-sensitive actions to `zk lsp`;
 - conceals raw `@ID` text with target-title extmarks;
 - presents searches, backlinks, and diagnostics;
 - invokes explicit archive commands;
 - applies LSP workspace edits.
+
+Global archive commands use the selected client from any buffer. Buffer-local backlinks, refresh, implicit removal, and cursor language features still require a current Zettel. `:ZkSetArchive` changes selection only; archive command semantics do not change.
 
 The plugin does not parse source or maintain a graph. It uses `vim.ui.select` for live metadata search and quickfix for backlinks and diagnostics. Reference extmarks use provider byte spans, conceal the authored `@ID`, and insert target titles as inline virtual text. Context definition routes ten-digit references only to `zk lsp`; other positions retain Neovim's ordinary multi-server definition behavior.
 

@@ -35,7 +35,7 @@ Tinymist remains the Typst language server for syntax, formatting, completion, c
 
 ## Design status
 
-The version-one architecture is accepted and implemented across the Rust CLI, live provider, companion language server, and Neovim adapter. See [Version-one architecture](v1-architecture.md) for the central decision and its research basis, and [System](../SYSTEM.md) for inspection paths and current limitations.
+The version-one architecture is implemented across the Rust CLI, live provider, companion language server, and Neovim adapter. Global archive access is accepted and awaiting implementation. See [Version-one architecture](v1-architecture.md) for the central design and its research basis, and [System](../SYSTEM.md) for inspection paths and current limitations.
 
 - [Archive](archive.md)
 - [Zettel](zettel.md)
@@ -43,6 +43,7 @@ The version-one architecture is accepted and implemented across the Rust CLI, li
 - [References and graph](references.md)
 - [CLI](cli.md)
 - [Language server and editor](lsp.md)
+- [Global archive access](global-archive-access.md)
 - [Implementation and migration](implementation.md)
 
 ## References

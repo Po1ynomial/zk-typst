@@ -18,6 +18,8 @@ External tools may consume a disk-backed JSON graph. Live unsaved state is avail
 
 - One directory is one archive and one ID namespace.
 - `zk.toml` marks the root and declares `format = 1`.
+- Neovim may configure one personal archive as a session fallback.
+- An explicit CLI archive path may select an archive outside the current directory.
 - Zettel live in one flat `zettel/` directory.
 - Archive-specific Typst presentation code lives in `lib/`.
 - Source files are canonical. There is no persistent graph cache or metadata index.
@@ -44,6 +46,7 @@ External tools may consume a disk-backed JSON graph. Live unsaved state is avail
 
 ```text
 zk init
+zk --archive <PATH> ...
 zk new
 zk remove <ID>
 zk check
@@ -57,6 +60,7 @@ zk lsp
 - Tinymist handles ordinary Typst syntax, completion, formatting, diagnostics, compilation, and preview.
 - `zk lsp` handles archive metadata, links, completion, navigation, backlinks, queries, and diagnostics.
 - A thin Neovim plugin presents ZK operations and title decorations.
+- Neovim starts the configured personal archive provider eagerly and can switch the session fallback.
 
 ## Constraints
 
@@ -90,6 +94,7 @@ zk lsp
 - Diagnostics point to exact authored source ranges whenever a relevant range exists.
 - Open-buffer changes cannot be overwritten by stale disk or parse results.
 - Commands are noninteractive and scriptable.
+- Local archive discovery takes precedence over Neovim's configured fallback.
 - Archive migrations are explicit and reviewable.
 - The provider does not silently rewrite Zettel bodies or the user-owned Typst library.
 - A compact eager graph remains practical at the 50,000-Zettel stress case.
@@ -99,6 +104,8 @@ zk lsp
 Version one succeeds when:
 
 - a user can initialize an archive and create a correctly shaped Zettel;
+- Neovim can find and create Zettel in a configured personal archive from any buffer;
+- shell commands can target an archive explicitly without changing directory;
 - Neovim can complete, display, and follow `@ID` references against unsaved state;
 - backlinks and reference locations update as buffers change;
 - `zk check` reports malformed metadata, mismatched IDs, and dangling links;

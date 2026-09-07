@@ -56,6 +56,10 @@ The Neovim plugin contributes an `after/lsp/tinymist.lua` override that places `
 
 The plugin is a thin editor adapter over `zk lsp`.
 
+`require("zk").setup({ archive = PATH })` configures a personal fallback archive. Local `zk.toml` discovery from the current buffer takes precedence. A valid fallback starts one eager client so archive-level commands work from unrelated buffers. `:ZkSetArchive [PATH]` reports or replaces that fallback for the current Neovim process without changing persistent configuration.
+
+Switching the fallback stops its previous client but leaves clients for open local archives running. Invalid paths leave the existing fallback untouched. See [Global archive access](global-archive-access.md).
+
 The language server owns a live provider session. It feeds saved-file changes and versioned open-buffer overlays into that session, then uses the resulting graph for parsing, extraction, validation, completion, navigation, backlinks, queries, and source ranges.
 
 ### Overlay lifecycle

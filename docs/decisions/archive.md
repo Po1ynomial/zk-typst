@@ -6,7 +6,7 @@ One directory is one archive, one ID namespace, and one (possibly not connected)
 
 The archive is self-contained and relocatable. A root configuration file identifies it. All durable notes, assets, references, and archive-specific Typst code live beneath that root. Cloning or copying the directory preserves the complete archive.
 
-The editor plugin and CLI locate the archive by walking upward from the current file until they find the root configuration.
+The editor plugin and CLI locate local archives by walking upward until they find the root configuration. Neovim may use a configured personal archive when no local archive exists, while the CLI may receive an explicit archive path. See [Global archive access](global-archive-access.md).
 
 ## Layout
 

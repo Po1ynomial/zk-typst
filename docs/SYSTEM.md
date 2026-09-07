@@ -204,6 +204,8 @@ The script creates an archive without a Git repository and runs headless Neovim 
 
 ## Current limitations
 
+Configured global archive access, eager fallback LSP startup, `:ZkSetArchive`, and the CLI `--archive` option are accepted but not implemented yet. Current commands still require upward `zk.toml` discovery from the current buffer or process directory.
+
 The server loads its initial graph synchronously before accepting protocol messages. Clients without dynamic watched-file registration must arrange those notifications themselves. Diagnostics are pushed for open Zettel; archive-wide closed-file inspection remains available through `zk check`.
 
 The built-in search presentation uses `vim.ui.select` without preview. Backlinks and diagnostics use quickfix. The plugin requests target metadata once per distinct outgoing target when it refreshes title decorations. It does not maintain a title cache across buffers.
