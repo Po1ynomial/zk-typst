@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -13,6 +13,10 @@ use zk::provider::Provider;
 #[derive(Debug, Parser)]
 #[command(name = "zk", version, about = "Manage a Typst Zettelkasten archive")]
 struct Cli {
+    /// Use this archive instead of discovering one from the current directory.
+    #[arg(long, global = true, value_name = "PATH")]
+    archive: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -86,6 +90,9 @@ enum GraphFormat {
 enum CliError {
     #[error("Zettel `{0}` does not exist")]
     MissingZettel(String),
+
+    #[error("`--archive` cannot be used with `init`; pass the target to `zk init [PATH]`")]
+    ArchiveWithInit,
 }
 
 fn main() -> ExitCode {
@@ -99,19 +106,24 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<ExitCode, Box<dyn Error>> {
-    match Cli::parse().command {
+    let cli = Cli::parse();
+    if cli.archive.is_some() && matches!(&cli.command, Command::Init { .. }) {
+        return Err(CliError::ArchiveWithInit.into());
+    }
+
+    match cli.command {
         Command::Init { path } => {
             let archive = Archive::init(path)?;
             println!("{}", archive.root().display());
         }
         Command::New => {
-            let archive = discover_archive()?;
+            let archive = discover_archive(cli.archive.as_deref())?;
             let path = archive.create_zettel()?;
             let display = path.strip_prefix(archive.root()).unwrap_or(&path);
             println!("{}", display.display());
         }
         Command::Check { format } => {
-            let provider = load_provider()?;
+            let provider = load_provider(cli.archive.as_deref())?;
             match format {
                 CheckFormat::Text => print_diagnostics(provider.diagnostics()),
                 CheckFormat::Json => write_json(provider.diagnostics())?,
@@ -125,7 +137,7 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
             }
         }
         Command::Query { query } => {
-            let provider = load_provider()?;
+            let provider = load_provider(cli.archive.as_deref())?;
             match query {
                 QueryCommand::Node { id } => {
                     let node = provider
@@ -144,7 +156,7 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
             }
         }
         Command::Remove { id } => {
-            let archive = discover_archive()?;
+            let archive = discover_archive(cli.archive.as_deref())?;
             let provider = Provider::load(&archive)?;
             require_node(&provider, &id)?;
             let incoming = provider.links_to(&id);
@@ -166,7 +178,7 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
             println!("{}", display.display());
         }
         Command::Lsp => {
-            let archive = discover_archive()?;
+            let archive = discover_archive(cli.archive.as_deref())?;
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?;
@@ -175,7 +187,7 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
         Command::Graph {
             format: GraphFormat::Json,
         } => {
-            let provider = load_provider()?;
+            let provider = load_provider(cli.archive.as_deref())?;
             write_json(&provider.snapshot())?;
         }
     }
@@ -183,12 +195,21 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn discover_archive() -> Result<Archive, Box<dyn Error>> {
-    Ok(Archive::discover(std::env::current_dir()?)?)
+fn discover_archive(explicit: Option<&Path>) -> Result<Archive, Box<dyn Error>> {
+    let current_dir = std::env::current_dir()?;
+    if let Some(path) = explicit {
+        let root = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            current_dir.join(path)
+        };
+        return Ok(Archive::open(root)?);
+    }
+    Ok(Archive::discover(current_dir)?)
 }
 
-fn load_provider() -> Result<Provider, Box<dyn Error>> {
-    Ok(Provider::load(&discover_archive()?)?)
+fn load_provider(explicit: Option<&Path>) -> Result<Provider, Box<dyn Error>> {
+    Ok(Provider::load(&discover_archive(explicit)?)?)
 }
 
 fn require_node<'a>(

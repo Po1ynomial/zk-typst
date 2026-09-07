@@ -282,3 +282,92 @@ fn new_fails_outside_an_archive() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("no archive found"));
 }
+
+#[test]
+fn explicit_archive_overrides_local_discovery() {
+    let temporary = tempdir().unwrap();
+    let local = temporary.path().join("local");
+    let selected = temporary.path().join("selected");
+    initialize(&local);
+    initialize(&selected);
+
+    let output = zk()
+        .current_dir(&local)
+        .args(["--archive", selected.to_str().unwrap(), "new"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "new failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fs::read_dir(local.join("zettel")).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(selected.join("zettel")).unwrap().count(), 1);
+}
+
+#[test]
+fn explicit_relative_archive_supports_existing_archive_commands() {
+    let temporary = tempdir().unwrap();
+    let root = temporary.path().join("archive");
+    let outside = temporary.path().join("outside");
+    initialize(&root);
+    fs::create_dir(&outside).unwrap();
+    write_zettel(&root, "2603231410", "Selected", "No links.");
+
+    let archive = "../archive";
+    for arguments in [
+        vec!["--archive", archive, "check"],
+        vec!["--archive", archive, "query", "node", "2603231410"],
+        vec!["--archive", archive, "graph", "--format", "json"],
+    ] {
+        let output = zk().current_dir(&outside).args(arguments).output().unwrap();
+        assert!(
+            output.status.success(),
+            "command failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let removed = zk()
+        .current_dir(&outside)
+        .args(["--archive", archive, "remove", "2603231410"])
+        .output()
+        .unwrap();
+    assert!(
+        removed.status.success(),
+        "remove failed: {}",
+        String::from_utf8_lossy(&removed.stderr)
+    );
+    assert!(!root.join("zettel/2603231410.typ").exists());
+}
+
+#[test]
+fn explicit_archive_rejects_invalid_roots_and_init() {
+    let temporary = tempdir().unwrap();
+    let missing = temporary.path().join("missing");
+    let initialized = temporary.path().join("initialized");
+    let target = temporary.path().join("target");
+    initialize(&initialized);
+
+    let invalid = zk()
+        .current_dir(temporary.path())
+        .args(["--archive", missing.to_str().unwrap(), "check"])
+        .output()
+        .unwrap();
+    assert!(!invalid.status.success());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("no archive found"));
+
+    let init = zk()
+        .args([
+            "--archive",
+            initialized.to_str().unwrap(),
+            "init",
+            target.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!init.status.success());
+    assert!(String::from_utf8_lossy(&init.stderr).contains("cannot be used with `init`"));
+    assert!(!target.exists());
+}

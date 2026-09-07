@@ -36,8 +36,10 @@ struct Probe {
 impl Probe {
     fn spawn(binary: &Path, archive: &Path) -> Result<Self, Box<dyn Error>> {
         let mut child = Command::new(binary)
+            .arg("--archive")
+            .arg(archive)
             .arg("lsp")
-            .current_dir(archive)
+            .current_dir(archive.parent().ok_or("archive has no parent")?)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())

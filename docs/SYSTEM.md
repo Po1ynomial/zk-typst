@@ -17,7 +17,9 @@ lib/
 
 The default path is the current directory. The generated manifest declares `format = 1`. The bundled Typst library renders the fixed metadata forms and intercepts ten-digit references.
 
-`zk new` walks upward from the current directory to find `zk.toml`, validates archive format 1 and the canonical layout, then creates a Zettel under `zettel/`. The filename uses the current local minute in `YYMMDDHHmm.typ` form. If that ID exists, allocation advances by one minute until a free name is available. The command prints the new path relative to the archive root.
+Commands that require an existing archive accept the global `--archive PATH` option. An explicit path resolves relative to the process working directory, must itself be a valid archive root, and takes precedence over current-directory discovery. Without the option, commands retain upward `zk.toml` discovery. `zk init [PATH]` rejects `--archive`.
+
+`zk new` selects and validates an archive, then creates a Zettel under `zettel/`. The filename uses the current local minute in `YYMMDDHHmm.typ` form. If that ID exists, allocation advances by one minute until a free name is available. The command prints the new path relative to the archive root.
 
 The generated Zettel has the required import, show rule, labelled level-one heading, abstract, keyword list, and category before an empty body.
 
@@ -81,7 +83,7 @@ Every scheduled source state receives a generation. `prepare_disk_update` return
 
 ### Language server
 
-`zk lsp` runs a companion language server over standard input and output. It loads the archive found above its working directory and owns one live provider session.
+`zk lsp` runs a companion language server over standard input and output. It loads either the explicit `--archive PATH` root or the archive found above its working directory, then owns one live provider session.
 
 The server advertises full-text document synchronization. Open, change, save, and close notifications map directly to the provider overlay lifecycle. When the client supports dynamic registration, the server registers `**/zettel/*.typ` for create, change, and delete events. Watched-file notifications refresh closed canonical Zettel and cannot replace open overlays.
 
@@ -192,7 +194,7 @@ Inspect the language server over its real stdio transport:
 scripts/inspect-lsp.sh
 ```
 
-The script launches two server sessions through the framed JSON-RPC probe. One negotiates UTF-8 positions and one negotiates UTF-16. Each session checks full-text synchronization, push diagnostics, completion, hover, definitions, references, backlinks, archive search and queries, unsaved targets, stale-version rejection, watched-file refresh, close reload, and clean shutdown. Pass `--keep` or set `KEEP_TMP=1` to retain the protocol reports and final archive.
+The script launches two server sessions through the framed JSON-RPC probe from outside the archive using explicit `--archive` selection. One negotiates UTF-8 positions and one negotiates UTF-16. Each session checks full-text synchronization, push diagnostics, completion, hover, definitions, references, backlinks, archive search and queries, unsaved targets, stale-version rejection, watched-file refresh, close reload, and clean shutdown. Pass `--keep` or set `KEEP_TMP=1` to retain the protocol reports and final archive.
 
 Inspect the Neovim adapter with the real language server and Tinymist:
 
@@ -204,7 +206,7 @@ The script creates an archive without a Git repository and runs headless Neovim 
 
 ## Current limitations
 
-Configured global archive access, eager fallback LSP startup, `:ZkSetArchive`, and the CLI `--archive` option are accepted but not implemented yet. Current commands still require upward `zk.toml` discovery from the current buffer or process directory.
+Configured Neovim archive access, eager fallback LSP startup, and `:ZkSetArchive` are accepted but not implemented yet. Neovim commands still require upward `zk.toml` discovery from the current buffer.
 
 The server loads its initial graph synchronously before accepting protocol messages. Clients without dynamic watched-file registration must arrange those notifications themselves. Diagnostics are pushed for open Zettel; archive-wide closed-file inspection remains available through `zk check`.
 

@@ -61,6 +61,20 @@ pub struct Archive {
 }
 
 impl Archive {
+    pub fn open(root: impl AsRef<Path>) -> Result<Self, ArchiveError> {
+        let root = root.as_ref();
+        let manifest = root.join(MANIFEST_NAME);
+        if !manifest.is_file() {
+            return Err(ArchiveError::NotFound(root.to_path_buf()));
+        }
+        validate_manifest(&manifest)?;
+        let archive = Self {
+            root: root.to_path_buf(),
+        };
+        archive.validate_layout()?;
+        Ok(archive)
+    }
+
     pub fn discover(start: impl AsRef<Path>) -> Result<Self, ArchiveError> {
         let start = start.as_ref();
         let directory = if start.is_file() {
@@ -279,6 +293,31 @@ mod tests {
         fs::create_dir_all(&nested).unwrap();
 
         assert_eq!(Archive::discover(nested).unwrap(), archive);
+    }
+
+    #[test]
+    fn opens_only_an_exact_valid_archive_root() {
+        let temporary = tempdir().unwrap();
+        let archive = Archive::init(temporary.path()).unwrap();
+        let nested = temporary.path().join("assets");
+        fs::create_dir(&nested).unwrap();
+
+        assert_eq!(Archive::open(temporary.path()).unwrap(), archive);
+        assert!(matches!(
+            Archive::open(&nested).unwrap_err(),
+            ArchiveError::NotFound(path) if path == nested
+        ));
+    }
+
+    #[test]
+    fn opening_an_archive_validates_its_layout() {
+        let temporary = tempdir().unwrap();
+        fs::write(temporary.path().join("zk.toml"), "format = 1\n").unwrap();
+
+        assert!(matches!(
+            Archive::open(temporary.path()).unwrap_err(),
+            ArchiveError::MissingLayout { .. }
+        ));
     }
 
     #[test]
