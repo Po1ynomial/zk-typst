@@ -71,7 +71,7 @@ Backlinks support:
 - navigating back from a detailed note to a structure note;
 - protecting integrity before removal or migration.
 
-A Zettel with no incoming references is not necessarily an orphan. Orphan detection means no incoming and no outgoing connections, and it is only a warning.
+A Zettel with no incoming or outgoing references is valid and produces no diagnostic. Isolated notes are normal while an archive is young or a thought is still being connected.
 
 ## Navigation and display
 

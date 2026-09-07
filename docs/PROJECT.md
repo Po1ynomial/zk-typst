@@ -101,7 +101,7 @@ Version one succeeds when:
 - a user can initialize an archive and create a correctly shaped Zettel;
 - Neovim can complete, display, and follow `@ID` references against unsaved state;
 - backlinks and reference locations update as buffers change;
-- `zk check` reports malformed metadata, mismatched IDs, dangling links, and orphan warnings;
+- `zk check` reports malformed metadata, mismatched IDs, and dangling links;
 - removal is blocked when incoming references exist;
 - metadata and graph queries work from the shell;
 - an external process can consume a versioned JSON graph snapshot;

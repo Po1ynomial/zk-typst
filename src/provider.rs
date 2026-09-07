@@ -532,15 +532,6 @@ impl Provider {
                 });
             }
         }
-        if self.outgoing[source as usize].is_empty() && self.incoming[source as usize].is_empty() {
-            diagnostics.push(Diagnostic {
-                path,
-                code: "graph.orphan".to_owned(),
-                severity: Severity::Warning,
-                message: "Zettel has no incoming or outgoing links".to_owned(),
-                range: None,
-            });
-        }
         self.graph_diagnostics[source as usize] = diagnostics;
     }
 
@@ -881,12 +872,7 @@ mod tests {
         );
         assert!(provider.links_to("2603231411").is_empty());
         assert_eq!(provider.links_to("2603231412").len(), 1);
-        assert!(provider.diagnostics().iter().any(|diagnostic| {
-            diagnostic.code == "graph.orphan" && diagnostic.path == "zettel/2603231411.typ"
-        }));
-        assert!(!provider.diagnostics().iter().any(|diagnostic| {
-            diagnostic.code == "graph.orphan" && diagnostic.path == "zettel/2603231412.typ"
-        }));
+        assert!(provider.diagnostics().is_empty());
 
         let stale = provider
             .change_buffer(

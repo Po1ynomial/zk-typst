@@ -25,7 +25,7 @@ The generated Zettel has the required import, show rule, labelled level-one head
 
 `zk graph --format json` loads saved canonical `zettel/ID.typ` files and writes a complete JSON snapshot to standard output. Files with noncanonical names do not enter the provider graph and produce archive diagnostics.
 
-The provider parses files concurrently with `typst-syntax` 0.15.1. It extracts the restricted direct metadata forms without evaluating Typst. Title and abstract values contain their exact inner source, deterministic text projection, and half-open UTF-8 byte range. Malformed fields remain `null` and produce snapshot diagnostics.
+The provider parses files concurrently with `typst-syntax` 0.15.1. It extracts the restricted direct metadata forms without evaluating Typst. The required library import accepts its four names in any order so `typstyle` output remains valid. Missing, repeated, renamed, or additional import names are rejected. Title and abstract values contain their exact inner source, deterministic text projection, and half-open UTF-8 byte range. Malformed fields remain `null` and produce snapshot diagnostics.
 
 Literal ten-digit Typst references become directed links. References in raw text, strings, and comments do not appear as Typst reference nodes and do not become links. The provider groups repeated occurrences by source-target pair, preserves every authored byte range, and records whether each target resolves to a canonical node.
 
@@ -56,7 +56,6 @@ Checks cover:
 - missing, malformed, repeated, or misplaced metadata;
 - filename and heading-label mismatches;
 - dangling reference occurrences;
-- Zettel with no incoming or outgoing links, reported as warnings.
 
 The query commands write JSON to standard output:
 
@@ -74,7 +73,7 @@ A node query returns metadata for one Zettel. Link and backlink queries return g
 
 The same `Provider` type supports long-lived editor sessions. `open_buffer` installs full text and a document version. `change_buffer` accepts only newer versions and calls `typst_syntax::Source::replace` for incremental reparsing. Open sources remain in memory; closed-file source and syntax trees do not.
 
-An overlay replaces the corresponding disk node and outgoing links in one graph revision. Incoming adjacency, target resolution, dangling diagnostics, and orphan diagnostics update before consumers see that revision. Opening a canonical path that does not exist on disk creates a session node.
+An overlay replaces the corresponding disk node and outgoing links in one graph revision. Incoming adjacency, target resolution, and dangling diagnostics update before consumers see that revision. Opening a canonical path that does not exist on disk creates a session node.
 
 `save_buffer` retains the overlay without reading disk. `refresh_disk` ignores open paths. `close_buffer` drops the overlay, then reloads disk or removes the session node when no disk file exists.
 
@@ -99,6 +98,34 @@ Implemented requests:
 
 The server pushes diagnostics for open Zettel after every accepted source update and after watched-file changes. Resolving or creating a target republishes affected open-buffer diagnostics. Stale document versions do not alter provider state.
 
+### Neovim adapter
+
+The Lua plugin supports Neovim 0.12 and has no external Lua dependencies. Configure it with:
+
+```lua
+require("zk").setup()
+```
+
+It starts `{ "zk", "lsp" }` only for canonical `zettel/ID.typ` buffers beneath a `zk.toml` root. The server process starts with the archive as `cmd_cwd`. The plugin's `after/lsp/tinymist.lua` configuration places `zk.toml` before `.git` in Tinymist's root markers, so both servers discover the archive root independently. Override `lsp_cmd` and `cli_cmd` when `zk` is not on `$PATH`. Tinymist may remain attached to the same buffer.
+
+The plugin defines these commands:
+
+```text
+:ZkFind [query]
+:ZkBacklinks
+:ZkDiagnostics
+:ZkCheck
+:ZkNew
+:ZkRemove [ID]
+:ZkRefresh
+```
+
+Search uses live `workspace/symbol` results and `vim.ui.select`. Backlinks and ZK diagnostics populate quickfix. Creation, checking, and guarded removal invoke the scriptable CLI. The plugin refuses to remove a Zettel whose loaded buffer has unsaved changes.
+
+The default buffer mappings are `gd`, `<leader>zf`, `<leader>zb`, `<leader>zd`, and `<leader>zn`. On a ten-digit reference, `gd` requests a definition only from `zk lsp`; elsewhere it uses Neovim's ordinary LSP definition path. Mappings can be replaced or disabled in `setup`.
+
+Resolved reference ranges receive extmarks that conceal the raw `@ID` and insert the target title as inline virtual text. Missing targets use `ZkMissingReference`. Refresh requests are debounced and carry a buffer change tick, so stale responses cannot decorate newer text. The Lua code converts provider byte offsets to buffer positions but does not parse Typst or retain archive relations.
+
 ## Code entry points
 
 - `src/main.rs` defines the command-line interface, JSON output, and process exit behavior.
@@ -108,9 +135,13 @@ The server pushes diagnostics for open Zettel after every accepted source update
 - `src/provider.rs` loads files concurrently, owns mutable graph state, retains open overlays, rejects stale updates, derives integrity diagnostics, and produces snapshots.
 - `src/lsp.rs` implements protocol capabilities, synchronization, position conversion, diagnostics, navigation, search, and archive commands.
 - `src/templates.rs` contains the canonical manifest, Typst library, and Zettel templates.
+- `after/lsp/tinymist.lua` makes `zk.toml` a higher-priority Tinymist workspace marker.
+- `lua/zk/init.lua` configures the Neovim client, commands, mappings, pickers, quickfix presentation, CLI jobs, and extmarks.
+- `doc/zk.txt` documents plugin setup and commands for `:help zk`.
 - `tests/cli.rs` exercises authoring, graph output, checking, queries, and guarded removal through the executable.
 - `examples/inspect_overlays.rs` drives the in-process live-provider lifecycle used by the overlay inspection script.
 - `examples/lsp_probe.rs` is a framed JSON-RPC client used to inspect the server with both supported position encodings.
+- `scripts/inspect_nvim.lua` drives the plugin inside headless Neovim.
 
 ## Inspection
 
@@ -163,9 +194,19 @@ scripts/inspect-lsp.sh
 
 The script launches two server sessions through the framed JSON-RPC probe. One negotiates UTF-8 positions and one negotiates UTF-16. Each session checks full-text synchronization, push diagnostics, completion, hover, definitions, references, backlinks, archive search and queries, unsaved targets, stale-version rejection, watched-file refresh, close reload, and clean shutdown. Pass `--keep` or set `KEEP_TMP=1` to retain the protocol reports and final archive.
 
+Inspect the Neovim adapter with the real language server and Tinymist:
+
+```sh
+scripts/inspect-nvim.sh
+```
+
+The script creates an archive without a Git repository and runs headless Neovim 0.12 with both servers attached. Tinymist starts through ordinary LSP configuration and must discover `zk.toml` as its root. The script also checks command registration, title extmarks and conceal ranges, diagnostics and quickfix, context definition, search selection, backlinks, blocked and successful removal, Zettel creation, and `zk check`. Pass `--keep` or set `KEEP_TMP=1` to retain the archive and report.
+
 ## Current limitations
 
-The server loads its initial graph synchronously before accepting protocol messages. Clients without dynamic watched-file registration must arrange those notifications themselves. Diagnostics are pushed for open Zettel; archive-wide closed-file inspection remains available through `zk check`. The Neovim adapter is not implemented.
+The server loads its initial graph synchronously before accepting protocol messages. Clients without dynamic watched-file registration must arrange those notifications themselves. Diagnostics are pushed for open Zettel; archive-wide closed-file inspection remains available through `zk check`.
+
+The built-in search presentation uses `vim.ui.select` without preview. Backlinks and diagnostics use quickfix. The plugin requests target metadata once per distinct outgoing target when it refreshes title decorations. It does not maintain a title cache across buffers.
 
 Queries currently emit JSON only. CLI locations use UTF-8 byte ranges rather than line and column coordinates. Removal does not edit incoming references and never rewrites Zettel bodies.
 

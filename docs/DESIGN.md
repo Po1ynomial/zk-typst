@@ -33,7 +33,7 @@ Tinymist and `zk lsp` are separate language servers. They receive the same edito
 format = 1
 ```
 
-Tools walk upward from the current path until they find this file. Neovim uses the same directory as the workspace root for Tinymist and `zk lsp`, which keeps `../lib/zettel.typ` inside Typst's project sandbox.
+Tools walk upward from the current path until they find this file. The Neovim plugin extends Tinymist's root markers so `zk.toml` selects the same workspace root used by `zk lsp`. This keeps `../lib/zettel.typ` inside Typst's project sandbox without requiring a Git repository.
 
 Canonical paths are fixed:
 
@@ -74,6 +74,8 @@ This relates to @2603220935 because ...
 ```
 
 The header order and forms are part of archive format 1. Aliases, loops, conditional metadata, computed keyword arrays, and other equivalent Typst programs do not define archive metadata.
+
+The required import names form an unordered exact set. Typst formatters may reorder them. Missing, repeated, renamed, or additional names are invalid.
 
 The body may contain arbitrary Typst. Only literal ten-digit reference syntax contributes links.
 
@@ -270,7 +272,7 @@ The Neovim plugin:
 - invokes explicit archive commands;
 - applies LSP workspace edits.
 
-The plugin does not parse source or maintain a graph.
+The plugin does not parse source or maintain a graph. It uses `vim.ui.select` for live metadata search and quickfix for backlinks and diagnostics. Reference extmarks use provider byte spans, conceal the authored `@ID`, and insert target titles as inline virtual text. Context definition routes ten-digit references only to `zk lsp`; other positions retain Neovim's ordinary multi-server definition behavior.
 
 ## Tinymist integration
 
@@ -287,7 +289,6 @@ Tinymist integration is optional and never becomes canonical archive state.
 - missing, repeated, malformed, or misplaced metadata;
 - invalid metadata body structure;
 - dangling references;
-- orphan warnings;
 - incoming references that block removal.
 
 Diagnostics use the current provider revision and exact byte ranges where available.

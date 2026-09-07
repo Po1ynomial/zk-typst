@@ -81,6 +81,8 @@ The required constructs are direct top-level forms:
 - one direct `#keywords(...)` call whose items are string literals;
 - one direct `#category.name` field access.
 
+The library import must contain exactly `zettel`, `abstract`, `keywords`, and `category`, but their order has no meaning. This allows Typst formatters to reorder the names. Renamed, repeated, missing, or additional imports are invalid.
+
 Aliases, computed arguments, spreads, loops, and conditional metadata do not define archive metadata. They may be valid Typst, but `zk` reports the required declarative field as missing or malformed.
 
 The metadata header appears in the order shown above, before the unrestricted body. The library defines rendering. `zk` defines archive meaning and validity. Changing how `abstract` renders cannot change what the language service extracts.

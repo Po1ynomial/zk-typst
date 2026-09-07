@@ -127,27 +127,27 @@ See @2603231411 twice: @2603231411.
 }
 
 #[test]
-fn orphan_warning_does_not_fail_check() {
+fn isolated_zettel_has_no_diagnostic() {
     let temporary = tempdir().unwrap();
     let root = temporary.path().join("archive");
     initialize(&root);
-    write_zettel(&root, "2603231410", "Orphan", "No links.");
+    write_zettel(&root, "2603231410", "Isolated", "No links.");
 
     let output = zk().current_dir(&root).arg("check").output().unwrap();
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("[graph.orphan]"));
-    assert!(stdout.contains("0 error(s), 1 warning(s)"));
+    assert!(!stdout.contains("[graph.orphan]"));
+    assert!(stdout.contains("0 error(s), 0 warning(s)"));
 }
 
 #[test]
-fn check_reports_integrity_errors_and_orphan_warnings() {
+fn check_reports_integrity_errors() {
     let temporary = tempdir().unwrap();
     let root = temporary.path().join("archive");
     initialize(&root);
     write_zettel(&root, "2603231410", "Dangling", "See @9999999999.");
-    write_zettel(&root, "2603231411", "Orphan", "No links.");
+    write_zettel(&root, "2603231411", "Isolated", "No links.");
     fs::write(root.join("zettel/bad-name.typ"), "invalid filename").unwrap();
 
     let output = zk()
@@ -166,7 +166,7 @@ fn check_reports_integrity_errors_and_orphan_warnings() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|diagnostic| diagnostic["code"] == "graph.orphan")
+            .all(|diagnostic| diagnostic["code"] != "graph.orphan")
     );
     assert!(
         diagnostics
@@ -175,6 +175,26 @@ fn check_reports_integrity_errors_and_orphan_warnings() {
             .iter()
             .any(|diagnostic| diagnostic["code"] == "archive.filename")
     );
+}
+
+#[test]
+fn formatter_ordered_import_is_valid() {
+    let temporary = tempdir().unwrap();
+    let root = temporary.path().join("archive");
+    initialize(&root);
+    write_zettel(&root, "2603231410", "Formatted", "No links.");
+    let path = root.join("zettel/2603231410.typ");
+    let source = fs::read_to_string(&path).unwrap().replacen(
+        "zettel, abstract, keywords, category",
+        "abstract, category, keywords, zettel",
+        1,
+    );
+    fs::write(path, source).unwrap();
+
+    let output = zk().current_dir(&root).arg("check").output().unwrap();
+
+    assert!(output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("[metadata.import]"));
 }
 
 #[test]

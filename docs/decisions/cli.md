@@ -38,7 +38,6 @@ Verify archive-wide invariants. Text diagnostics are the default; `--format json
 - duplicate IDs;
 - filename and heading-label mismatches;
 - malformed or missing metadata constructs;
-- orphan Zettel as warnings.
 
 ### query
 

@@ -220,7 +220,11 @@ fn valid_import(node: &LinkedNode<'_>) -> bool {
             ImportItem::Renamed(_) => None,
         })
         .collect();
-    imported.is_some_and(|names| names == REQUIRED_IMPORTS)
+    imported.is_some_and(|names| {
+        names.len() == REQUIRED_IMPORTS.len()
+            && names.into_iter().collect::<BTreeSet<_>>()
+                == REQUIRED_IMPORTS.into_iter().collect::<BTreeSet<_>>()
+    })
 }
 
 fn is_zettel_show_rule(node: &LinkedNode<'_>) -> bool {
@@ -640,6 +644,23 @@ Body @2603220935 and @9999999999. `@1111111111`
             .map(|reference| &VALID[reference.range.start as usize..reference.range.end as usize])
             .collect();
         assert_eq!(authored, vec!["@2603220935", "@2603220935", "@9999999999"]);
+    }
+
+    #[test]
+    fn accepts_formatter_ordered_imports() {
+        let source = VALID.replacen(
+            "zettel, abstract, keywords, category",
+            "abstract, category, keywords, zettel",
+            1,
+        );
+        let extracted = extract("2603231410", "zettel/2603231410.typ", &source);
+
+        assert!(
+            extracted
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.code != "metadata.import")
+        );
     }
 
     #[test]

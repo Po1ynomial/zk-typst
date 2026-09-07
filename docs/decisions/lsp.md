@@ -50,6 +50,8 @@ Tinymist is an optional integration, not part of the archive format.
 - No Tinymist configuration or lock file becomes canonical archive state.
 - Native Tinymist completion was considered via generated synthetic labels, then dropped in favor of a cache-free in-memory model.
 
+The Neovim plugin contributes an `after/lsp/tinymist.lua` override that places `zk.toml` before `.git` in Tinymist's root markers. Tinymist and `zk lsp` therefore discover the same archive root without requiring the archive to be a Git repository.
+
 ## Neovim plugin
 
 The plugin is a thin editor adapter over `zk lsp`.
@@ -74,7 +76,7 @@ The plugin owns:
 - invoking explicit archive commands;
 - applying LSP workspace edits.
 
-The plugin does not parse Zettel, read an index, maintain a graph, or duplicate archive rules.
+The plugin does not parse Zettel, read an index, maintain a graph, or duplicate archive rules. Its default presentation uses `vim.ui.select` for search, quickfix for backlinks and diagnostics, and inline extmarks for target titles. These choices remain replaceable by user configuration or picker integrations.
 
 ## Version-one editor scope
 

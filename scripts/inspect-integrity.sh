@@ -105,7 +105,7 @@ jq -e '
   and any(.[]; .code == "metadata.id_mismatch" and .path == "zettel/2603231414.typ")
   and any(.[]; .code == "metadata.keywords" and .path == "zettel/2603231414.typ")
   and any(.[]; .code == "reference.dangling" and .path == "zettel/2603231413.typ")
-  and any(.[]; .code == "graph.orphan" and .path == "zettel/2603231412.typ" and .severity == "warning")
+  and all(.[]; .code != "graph.orphan")
 ' "$workspace/initial-check.json" >/dev/null
 
 (
