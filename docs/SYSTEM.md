@@ -80,6 +80,25 @@ An overlay replaces the corresponding disk node and outgoing links in one graph 
 
 Every scheduled source state receives a generation. `prepare_disk_update` returns parsed work tagged with that generation, and `apply_prepared` rejects it if a newer disk or buffer state has already been scheduled. Accepted replacements increment the graph revision once. Stale document versions, stale generations, saves, and ignored disk events do not increment it.
 
+### Language server
+
+`zk lsp` runs a companion language server over standard input and output. It loads the archive found above its working directory and owns one live provider session.
+
+The server advertises full-text document synchronization. Open, change, save, and close notifications map directly to the provider overlay lifecycle. When the client supports dynamic registration, the server registers `**/zettel/*.typ` for create, change, and delete events. Watched-file notifications refresh closed canonical Zettel and cannot replace open overlays.
+
+The server prefers UTF-8 positions when the client offers them and otherwise uses UTF-16. Its adapter converts the provider's byte ranges using retained open-buffer text or one read of the closed file.
+
+Implemented requests:
+
+- `textDocument/completion` completes ID prefixes after `@` and omits raw text, strings, comments, and escapes.
+- `textDocument/hover` returns target metadata or a missing-target message.
+- `textDocument/definition` opens the target title, including unsaved session nodes.
+- `textDocument/references` returns incoming authored occurrences and optionally the target declaration.
+- `workspace/symbol` searches IDs, titles, abstracts, keywords, and categories across live state.
+- `workspace/executeCommand` supports `zk.queryNode`, `zk.links`, and `zk.backlinks`, each with one ID argument.
+
+The server pushes diagnostics for open Zettel after every accepted source update and after watched-file changes. Resolving or creating a target republishes affected open-buffer diagnostics. Stale document versions do not alter provider state.
+
 ## Code entry points
 
 - `src/main.rs` defines the command-line interface, JSON output, and process exit behavior.
@@ -87,9 +106,11 @@ Every scheduled source state receives a generation. `prepare_disk_update` return
 - `src/extract.rs` extracts metadata, literal references, source ranges, and syntax diagnostics from one parsed Zettel.
 - `src/model.rs` defines the public node, link, diagnostic, and snapshot data shapes.
 - `src/provider.rs` loads files concurrently, owns mutable graph state, retains open overlays, rejects stale updates, derives integrity diagnostics, and produces snapshots.
+- `src/lsp.rs` implements protocol capabilities, synchronization, position conversion, diagnostics, navigation, search, and archive commands.
 - `src/templates.rs` contains the canonical manifest, Typst library, and Zettel templates.
 - `tests/cli.rs` exercises authoring, graph output, checking, queries, and guarded removal through the executable.
 - `examples/inspect_overlays.rs` drives the in-process live-provider lifecycle used by the overlay inspection script.
+- `examples/lsp_probe.rs` is a framed JSON-RPC client used to inspect the server with both supported position encodings.
 
 ## Inspection
 
@@ -134,9 +155,17 @@ scripts/inspect-overlays.sh
 
 The script creates a disk archive and runs the Rust inspection example through overlay installation, incremental full-text changes, stale version and generation rejection, unsaved-node creation, save precedence, close reload, disk deletion, and disk restoration. It prints the final revision-seven snapshot. Pass `--keep` or set `KEEP_TMP=1` to retain the resulting archive.
 
+Inspect the language server over its real stdio transport:
+
+```sh
+scripts/inspect-lsp.sh
+```
+
+The script launches two server sessions through the framed JSON-RPC probe. One negotiates UTF-8 positions and one negotiates UTF-16. Each session checks full-text synchronization, push diagnostics, completion, hover, definitions, references, backlinks, archive search and queries, unsaved targets, stale-version rejection, watched-file refresh, close reload, and clean shutdown. Pass `--keep` or set `KEEP_TMP=1` to retain the protocol reports and final archive.
+
 ## Current limitations
 
-No filesystem watcher calls the disk-refresh API yet. The executable does not yet run a language server, and the Neovim adapter is not implemented.
+The server loads its initial graph synchronously before accepting protocol messages. Clients without dynamic watched-file registration must arrange those notifications themselves. Diagnostics are pushed for open Zettel; archive-wide closed-file inspection remains available through `zk check`. The Neovim adapter is not implemented.
 
 Queries currently emit JSON only. CLI locations use UTF-8 byte ranges rather than line and column coordinates. Removal does not edit incoming references and never rewrites Zettel bodies.
 

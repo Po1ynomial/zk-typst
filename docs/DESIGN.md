@@ -260,7 +260,7 @@ It does not launch Neovim, provide a TUI, publish documents, compile Typst, or s
 
 ## LSP and Neovim responsibilities
 
-`zk lsp` provides metadata diagnostics, Zettel completion, hover, definitions, references, backlinks, and archive queries.
+`zk lsp` provides metadata diagnostics, Zettel completion, hover, definitions, references, backlinks, and archive queries. `workspace/symbol` searches live metadata. The `zk.queryNode`, `zk.links`, and `zk.backlinks` execute commands expose the provider's targeted JSON values to the editor adapter.
 
 The Neovim plugin:
 

@@ -33,6 +33,8 @@ Tinymist handles:
 
 The Neovim plugin routes context-sensitive actions. On `@ID`, definition goes to the ZK server. Elsewhere it uses normal LSP definition.
 
+Live archive search uses `workspace/symbol`. Targeted adapter queries use the `zk.queryNode`, `zk.links`, and `zk.backlinks` execute commands with one Zettel ID argument.
+
 ## Reference validity
 
 Tinymist 0.15.2 cannot selectively suppress unresolved numeric-label diagnostics. `zk lsp` and `zk check` therefore own dangling-reference diagnostics.

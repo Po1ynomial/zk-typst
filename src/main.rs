@@ -48,6 +48,9 @@ enum Command {
         id: String,
     },
 
+    /// Run the Zettelkasten language server over standard input and output.
+    Lsp,
+
     /// Emit a complete disk-backed archive graph.
     Graph {
         /// Snapshot serialization format.
@@ -161,6 +164,13 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
             let path = archive.remove_zettel(&id)?;
             let display = path.strip_prefix(archive.root()).unwrap_or(&path);
             println!("{}", display.display());
+        }
+        Command::Lsp => {
+            let archive = discover_archive()?;
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            runtime.block_on(zk::lsp::serve(archive))?;
         }
         Command::Graph {
             format: GraphFormat::Json,
