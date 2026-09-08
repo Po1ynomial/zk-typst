@@ -102,13 +102,21 @@ The server pushes diagnostics for open Zettel after every accepted source update
 
 ### Neovim adapter
 
-The Lua plugin supports Neovim 0.12 and has no external Lua dependencies. Configure it with:
+The Lua plugin supports Neovim 0.12 and has no external Lua dependencies. Configure a personal fallback archive with:
 
 ```lua
-require("zk").setup()
+require("zk").setup({
+  archive = "~/zettelkasten",
+})
 ```
 
-It starts `{ "zk", "lsp" }` only for canonical `zettel/ID.typ` buffers beneath a `zk.toml` root. The server process starts with the archive as `cmd_cwd`. The plugin's `after/lsp/tinymist.lua` configuration places `zk.toml` before `.git` in Tinymist's root markers, so both servers discover the archive root independently. Override `lsp_cmd` and `cli_cmd` when `zk` is not on `$PATH`. Tinymist may remain attached to the same buffer.
+The option expands `~` and environment variables, resolves relative paths against Neovim's current working directory, canonicalizes the result, and checks the canonical archive layout. The selected fallback is readable as `require("zk").archive`.
+
+A valid fallback eagerly starts one unattached `{ "zk", "lsp" }` client. Opening one of its Zettel attaches the buffer to that existing client. The nearest `zk.toml` above the current buffer takes precedence; another local archive starts or reuses its own client when a command or Zettel needs it. Without the option, local discovery behaves as before.
+
+`:ZkSetArchive [PATH]` reports or replaces the session fallback. A replacement becomes visible only after its server initializes. Invalid paths and failed server startup leave the previous fallback unchanged. The plugin stops an unused previous fallback client but preserves it when open Zettel still use it.
+
+Server processes start with their archive as `cmd_cwd`. The plugin's `after/lsp/tinymist.lua` configuration places `zk.toml` before `.git` in Tinymist's root markers, so both servers discover local archive roots independently. Override `lsp_cmd` and `cli_cmd` when `zk` is not on `$PATH`. Tinymist may remain attached to the same buffer.
 
 The plugin defines these commands:
 
@@ -120,9 +128,12 @@ The plugin defines these commands:
 :ZkNew
 :ZkRemove [ID]
 :ZkRefresh
+:ZkSetArchive [PATH]
 ```
 
 Search uses live `workspace/symbol` results and `vim.ui.select`. Backlinks and ZK diagnostics populate quickfix. Creation, checking, and guarded removal invoke the scriptable CLI. The plugin refuses to remove a Zettel whose loaded buffer has unsaved changes.
+
+`ZkFind`, `ZkNew`, `ZkCheck`, `ZkDiagnostics`, and `ZkRemove ID` use the locally discovered archive or configured fallback from any buffer. Backlinks, refresh, implicit removal, and cursor language features remain specific to the current Zettel.
 
 The default buffer mappings are `gd`, `<leader>zf`, `<leader>zb`, `<leader>zd`, and `<leader>zn`. On a ten-digit reference, `gd` requests a definition only from `zk lsp`; elsewhere it uses Neovim's ordinary LSP definition path. Mappings can be replaced or disabled in `setup`.
 
@@ -144,6 +155,7 @@ Resolved reference ranges receive extmarks that conceal the raw `@ID` and insert
 - `examples/inspect_overlays.rs` drives the in-process live-provider lifecycle used by the overlay inspection script.
 - `examples/lsp_probe.rs` is a framed JSON-RPC client used to inspect the server with both supported position encodings.
 - `scripts/inspect_nvim.lua` drives the plugin inside headless Neovim.
+- `scripts/inspect_nvim_fallback.lua` checks configured and locally discovered archive selection.
 
 ## Inspection
 
@@ -202,11 +214,11 @@ Inspect the Neovim adapter with the real language server and Tinymist:
 scripts/inspect-nvim.sh
 ```
 
-The script creates an archive without a Git repository and runs headless Neovim 0.12 with both servers attached. Tinymist starts through ordinary LSP configuration and must discover `zk.toml` as its root. The script also checks command registration, title extmarks and conceal ranges, diagnostics and quickfix, context definition, search selection, backlinks, blocked and successful removal, Zettel creation, and `zk check`. Pass `--keep` or set `KEEP_TMP=1` to retain the archive and report.
+The script first creates an archive without a Git repository and runs headless Neovim 0.12 with both servers attached. Tinymist starts through ordinary LSP configuration and must discover `zk.toml` as its root. This pass also checks command registration, title extmarks and conceal ranges, diagnostics and quickfix, context definition, search selection, backlinks, blocked and successful removal, Zettel creation, and `zk check`.
+
+A second headless pass starts in an unrelated buffer with a configured personal archive. It checks eager unattached startup, readable fallback state, global search and CLI commands, diagnostics, attachment to the eager client, on-demand local archive precedence, invalid switch preservation, successful switching, and preservation of clients serving open local buffers. Pass `--keep` or set `KEEP_TMP=1` to retain the archives and reports.
 
 ## Current limitations
-
-Configured Neovim archive access, eager fallback LSP startup, and `:ZkSetArchive` are accepted but not implemented yet. Neovim commands still require upward `zk.toml` discovery from the current buffer.
 
 The server loads its initial graph synchronously before accepting protocol messages. Clients without dynamic watched-file registration must arrange those notifications themselves. Diagnostics are pushed for open Zettel; archive-wide closed-file inspection remains available through `zk check`.
 
