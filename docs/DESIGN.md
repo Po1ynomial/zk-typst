@@ -45,7 +45,36 @@ lib/
   zettel.typ
 ```
 
+An opt-in initialization may also create user-owned agent skills:
+
+```text
+.agents/
+  skills/
+    zettelkasten/
+      SKILL.md
+```
+
 Other directories are allowed but have no version-one archive semantics.
+After optional skill installation, `zk` does not manage `.agents/` or other
+additional files.
+
+## Agent operating skills
+
+Ordinary `zk init` does not assume an agent workflow. The boolean
+`--agent-skills` flag installs the complete bundled skill set under
+`.agents/skills/`. The initial set contains the `zettelkasten` skill.
+
+Installation is best-effort. Existing same-name destinations remain untouched
+and produce warnings. Failure to install one skill does not stop other skill
+installations, fail canonical archive creation, or roll back files.
+
+Installed skills immediately become user-owned. `zk` does not validate or
+refresh them. The initial skill gives workers concise Zettelkasten writing
+discipline, the fixed source contract, command recipes, and guidance for
+checking their work. It does not settle category or keyword policy.
+
+Skills provide operating knowledge only. Agent orchestration, review,
+permissions, and live Neovim-buffer collaboration remain external to `zk`.
 
 ## Git lifecycle
 
@@ -290,9 +319,21 @@ Version one has no public cross-process change stream.
 
 `zk` is noninteractive and scriptable. It initializes archives, allocates Zettel, checks invariants, prevents unsafe removal, serves targeted queries, emits graph snapshots, and runs the language server.
 
-`zk check` defaults to text diagnostics and supports a JSON diagnostic array through `--format json`. Errors produce a failing exit status; warnings do not. `zk query node`, `zk query links`, and `zk query backlinks` emit JSON. `zk remove` reports every incoming byte range when it refuses deletion.
+`zk check` defaults to text diagnostics and supports a JSON diagnostic array
+through `--format json`. Errors produce a failing exit status; warnings do
+not. `zk query node`, `zk query links`, `zk query backlinks`, and
+`zk query search` emit JSON. `zk remove` reports every incoming byte range
+when it refuses deletion.
 
-It does not launch Neovim, provide a TUI, publish documents, compile Typst, or silently rewrite Zettel bodies.
+`zk query search <QUERY>` applies deterministic case-insensitive substring
+matching to IDs, projected titles, projected abstracts, keywords, and
+categories. The matcher is shared with LSP workspace-symbol search. The
+command returns every matching node in provider ID order without an implicit
+cap. The bundled skill warns that broad searches can produce large JSON
+arrays.
+
+It does not launch Neovim, provide a TUI, publish documents, compile Typst,
+coordinate workers, or silently rewrite Zettel bodies.
 
 ## LSP and Neovim responsibilities
 

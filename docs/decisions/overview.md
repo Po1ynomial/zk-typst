@@ -45,6 +45,7 @@ The version-one architecture and global archive access are implemented across th
 - [Language server and editor](lsp.md)
 - [Global archive access](global-archive-access.md)
 - [Git lifecycle](git-lifecycle.md)
+- [Agent workers](agent-workers.md)
 - [Implementation and migration](implementation.md)
 
 ## References

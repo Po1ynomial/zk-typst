@@ -12,6 +12,11 @@ The version-one user is a single person maintaining one archive on one machine o
 
 External tools may consume a disk-backed JSON graph. Live unsaved state is available only to bundled consumers in the active editor session.
 
+Agent workers may participate through external editor coordination. `zk`
+provides optional archive-local operating skills, data queries, and the same
+whole-file creation and removal operations available to human users. It does
+not orchestrate collaboration.
+
 ## Version-one scope
 
 ### Archive
@@ -20,6 +25,9 @@ External tools may consume a disk-backed JSON graph. Live unsaved state is avail
 - `zk.toml` marks the root and declares `format = 1`.
 - `zk init` attempts a supplementary Git repository and initialization commit
   when `git` is available, but Git failures do not block archive creation.
+- An explicit `zk init` flag may install bundled archive-local agent skills.
+  Ordinary initialization remains agent-neutral, and installed skills are
+  user-owned.
 - Neovim may configure one personal archive as a session fallback.
 - An explicit CLI archive path may select an archive outside the current directory.
 - Zettel live in one flat `zettel/` directory.
@@ -47,12 +55,12 @@ External tools may consume a disk-backed JSON graph. Live unsaved state is avail
 ### Commands
 
 ```text
-zk init
+zk init [--agent-skills]
 zk --archive <PATH> ...
 zk new
 zk remove <ID>
 zk check
-zk query ...
+zk query node|links|backlinks|search ...
 zk graph --format json
 zk lsp
 ```
@@ -86,7 +94,7 @@ zk lsp
 - Transclusion
 - Structure-note-specific tooling
 - Multiple structural node types
-- Agent-assisted organization
+- Agent orchestration or autonomous organization owned by `zk`
 - Interactive metadata forms
 - A custom query language
 - A shared daemon or language-neutral live stream
@@ -98,6 +106,8 @@ zk lsp
 - Diagnostics point to exact authored source ranges whenever a relevant range exists.
 - Open-buffer changes cannot be overwritten by stale disk or parse results.
 - Commands are noninteractive and scriptable.
+- Metadata search uses one deterministic matching rule across CLI and LSP
+  consumers.
 - Local archive discovery takes precedence over Neovim's configured fallback.
 - Archive migrations are explicit and reviewable.
 - The provider does not silently rewrite Zettel bodies or the user-owned Typst library.
@@ -118,6 +128,10 @@ Version one succeeds when:
 - `zk check` reports malformed metadata, mismatched IDs, and dangling links;
 - removal is blocked when incoming references exist;
 - metadata and graph queries work from the shell;
+- shell users and workers can search metadata directly without loading the
+  complete graph;
+- a user can opt into archive-local Zettelkasten operating guidance without
+  affecting unrelated agent sessions;
 - an external process can consume a versioned JSON graph snapshot;
 - Tinymist does not report archive `@ID` references as missing Typst labels;
 - copying the archive root preserves all canonical state.

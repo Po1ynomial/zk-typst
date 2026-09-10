@@ -5,7 +5,7 @@
 One executable named `zk` provides all archive operations as subcommands:
 
 ```text
-zk init
+zk init [--agent-skills]
 zk new
 zk remove <ID>
 zk check
@@ -23,6 +23,11 @@ Commands that require an existing archive accept `--archive PATH`. This explicit
 ### init
 
 Initialize the fixed archive layout.
+
+The optional boolean `--agent-skills` flag installs the complete bundled
+archive-local skill set under `.agents/skills/`. Installation is best-effort.
+Existing same-name skills remain untouched and produce warnings. Installed
+skills are user-owned and are not updated by later `zk` commands.
 
 ### new
 
@@ -49,7 +54,13 @@ Return targeted metadata, links, and backlinks as JSON for shell use:
 zk query node <ID>
 zk query links <ID>
 zk query backlinks <ID>
+zk query search <QUERY>
 ```
+
+Search uses deterministic case-insensitive substring matching across IDs,
+projected titles, projected abstracts, keywords, and categories. It returns
+all matching node objects in provider ID order without an implicit cap. The
+CLI and LSP share the matching rule.
 
 ### graph
 
@@ -73,7 +84,9 @@ It should not:
 
 - provide a TUI or picker;
 - launch or control Neovim;
+- coordinate agent workers or live collaboration;
 - silently rewrite Zettel bodies;
+- manage user-owned files under `.agents/`;
 - maintain canonical graph state outside the source;
 - perform publishing or compilation.
 
