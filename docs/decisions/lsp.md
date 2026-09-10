@@ -63,12 +63,17 @@ Switching the fallback stops its previous client but leaves clients for open loc
 
 The language server owns a live provider session. It feeds saved-file changes and versioned open-buffer overlays into that session, then uses the resulting graph for parsing, extraction, validation, completion, navigation, backlinks, queries, and source ranges.
 
-### Creation behavior
+### Document opening
 
-`:ZkNew` opens the generated Zettel in the current window. When the current
-buffer has unsaved changes, Neovim hides that buffer without discarding its
-changes before editing the new path. Creation does not open a split or force a
-write.
+Every ZK-controlled document open uses the window where the action began.
+This includes `:ZkNew`, a `:ZkFind` selection, and ZK definition navigation.
+When that window's buffer has unsaved changes, Neovim hides the buffer without
+discarding its changes before displaying the target. These actions do not open
+a split or force a write.
+
+Asynchronous command, picker, and language-server responses retain the
+invocation window. If that window closes before the response arrives, the
+adapter uses the current valid window.
 
 ### Reference completion
 

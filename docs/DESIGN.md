@@ -318,8 +318,8 @@ The Neovim plugin:
 - eagerly starts the configured fallback archive provider;
 - selects local archive clients before the session fallback;
 - routes Zettel-sensitive actions to `zk lsp`;
-- opens a newly created Zettel in the current window while preserving a
-  modified prior buffer as hidden;
+- opens created, selected, and definition-target Zettel in the invocation
+  window while preserving a modified prior buffer as hidden;
 - exposes a completion filter that lets a configured frontend keep only ZK
   items in category context;
 - conceals raw `@ID` text with target-title extmarks;

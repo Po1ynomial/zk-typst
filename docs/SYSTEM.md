@@ -140,9 +140,13 @@ The plugin defines these commands:
 
 Search uses live `workspace/symbol` results and `vim.ui.select`. Backlinks and
 ZK diagnostics populate quickfix. Creation, checking, and guarded removal
-invoke the scriptable CLI. `:ZkNew` opens the generated path in the current
-window and hides a modified prior buffer without discarding its changes. The
-plugin refuses to remove a Zettel whose loaded buffer has unsaved changes.
+invoke the scriptable CLI.
+
+`:ZkNew`, `:ZkFind` selections, and ZK definition navigation display their
+target in the invocation window. They hide a modified prior buffer without
+discarding its changes. If an asynchronous response arrives after that window
+closes, the adapter uses the current valid window. The plugin refuses to remove
+a Zettel whose loaded buffer has unsaved changes.
 
 `ZkFind`, `ZkNew`, `ZkCheck`, `ZkDiagnostics`, and `ZkRemove ID` use the locally discovered archive or configured fallback from any buffer. Backlinks, refresh, implicit removal, and cursor language features remain specific to the current Zettel.
 
@@ -247,8 +251,8 @@ Neovim 0.12 with both servers attached. Tinymist starts through ordinary LSP
 configuration and must discover `zk.toml` as its root. This pass also checks
 command registration, title extmarks and conceal ranges, diagnostics and
 quickfix, context definition, search selection, backlinks, blocked and
-successful removal, current-window Zettel creation with an unsaved prior
-buffer, completion filtering, and `zk check`.
+successful removal, current-window creation, search and definition navigation
+with unsaved prior buffers, completion filtering, and `zk check`.
 
 A second headless pass starts in an unrelated buffer with a configured personal archive. It checks eager unattached startup, readable fallback state, global search and CLI commands, diagnostics, attachment to the eager client, on-demand local archive precedence, invalid switch preservation, successful switching, and preservation of clients serving open local buffers. Pass `--keep` or set `KEEP_TMP=1` to retain the archives and reports.
 
