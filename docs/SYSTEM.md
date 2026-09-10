@@ -91,7 +91,14 @@ The server prefers UTF-8 positions when the client offers them and otherwise use
 
 Implemented requests:
 
-- `textDocument/completion` completes ID prefixes after `@` and omits raw text, strings, comments, and escapes.
+- `textDocument/completion` treats numeric text after `@` as an ID prefix and
+  other text as a case-insensitive title query. It returns at most 100
+  server-filtered items, marks the list incomplete for continued queries, and
+  omits raw text, strings, comments, and escapes. Empty queries show the newest
+  Zettel.
+- In direct top-level `#category.` context, completion returns keys from the
+  saved direct category dictionary in `lib/zettel.typ`. Computed or malformed
+  category definitions return no candidates.
 - `textDocument/hover` returns target metadata or a missing-target message.
 - `textDocument/definition` opens the target title, including unsaved session nodes.
 - `textDocument/references` returns incoming authored occurrences and optionally the target declaration.
@@ -131,13 +138,27 @@ The plugin defines these commands:
 :ZkSetArchive [PATH]
 ```
 
-Search uses live `workspace/symbol` results and `vim.ui.select`. Backlinks and ZK diagnostics populate quickfix. Creation, checking, and guarded removal invoke the scriptable CLI. The plugin refuses to remove a Zettel whose loaded buffer has unsaved changes.
+Search uses live `workspace/symbol` results and `vim.ui.select`. Backlinks and
+ZK diagnostics populate quickfix. Creation, checking, and guarded removal
+invoke the scriptable CLI. `:ZkNew` opens the generated path in the current
+window and hides a modified prior buffer without discarding its changes. The
+plugin refuses to remove a Zettel whose loaded buffer has unsaved changes.
 
 `ZkFind`, `ZkNew`, `ZkCheck`, `ZkDiagnostics`, and `ZkRemove ID` use the locally discovered archive or configured fallback from any buffer. Backlinks, refresh, implicit removal, and cursor language features remain specific to the current Zettel.
 
 The default buffer mappings are `gd`, `<leader>zf`, `<leader>zb`, `<leader>zd`, and `<leader>zn`. On a ten-digit reference, `gd` requests a definition only from `zk lsp`; elsewhere it uses Neovim's ordinary LSP definition path. Mappings can be replaced or disabled in `setup`.
 
-Resolved reference ranges receive extmarks that conceal the raw `@ID` and insert the target title as inline virtual text. Missing targets use `ZkMissingReference`. Refresh requests are debounced and carry a buffer change tick, so stale responses cannot decorate newer text. The Lua code converts provider byte offsets to buffer positions but does not parse Typst or retain archive relations.
+Resolved reference ranges receive extmarks that conceal the raw `@ID` and
+insert the target title as inline virtual text. Missing targets use
+`ZkMissingReference`. Refresh requests are debounced and carry a buffer change
+tick, so stale responses cannot decorate newer text.
+
+The Lua adapter exports `filter_completion_items(context, items)`. It preserves
+ordinary completion items except in direct `#category.` context, where it keeps
+only items from `zk lsp`. Blink users compose this helper into
+`sources.transform_items`; the plugin does not depend on or configure Blink.
+The Lua code recognizes narrow source contexts and converts provider byte
+offsets, but it does not extract metadata or retain archive relations.
 
 ## Code entry points
 
@@ -206,7 +227,14 @@ Inspect the language server over its real stdio transport:
 scripts/inspect-lsp.sh
 ```
 
-The script launches two server sessions through the framed JSON-RPC probe from outside the archive using explicit `--archive` selection. One negotiates UTF-8 positions and one negotiates UTF-16. Each session checks full-text synchronization, push diagnostics, completion, hover, definitions, references, backlinks, archive search and queries, unsaved targets, stale-version rejection, watched-file refresh, close reload, and clean shutdown. Pass `--keep` or set `KEEP_TMP=1` to retain the protocol reports and final archive.
+The script launches two server sessions through the framed JSON-RPC probe from
+outside the archive using explicit `--archive` selection. One negotiates UTF-8
+positions and one negotiates UTF-16. Each session checks full-text
+synchronization, push diagnostics, ID and title reference completion,
+category completion from a modified library, hover, definitions, references,
+backlinks, archive search and queries, unsaved targets, stale-version
+rejection, watched-file refresh, close reload, and clean shutdown. Pass
+`--keep` or set `KEEP_TMP=1` to retain the protocol reports and final archive.
 
 Inspect the Neovim adapter with the real language server and Tinymist:
 
@@ -214,7 +242,13 @@ Inspect the Neovim adapter with the real language server and Tinymist:
 scripts/inspect-nvim.sh
 ```
 
-The script first creates an archive without a Git repository and runs headless Neovim 0.12 with both servers attached. Tinymist starts through ordinary LSP configuration and must discover `zk.toml` as its root. This pass also checks command registration, title extmarks and conceal ranges, diagnostics and quickfix, context definition, search selection, backlinks, blocked and successful removal, Zettel creation, and `zk check`.
+The script first creates an archive without a Git repository and runs headless
+Neovim 0.12 with both servers attached. Tinymist starts through ordinary LSP
+configuration and must discover `zk.toml` as its root. This pass also checks
+command registration, title extmarks and conceal ranges, diagnostics and
+quickfix, context definition, search selection, backlinks, blocked and
+successful removal, current-window Zettel creation with an unsaved prior
+buffer, completion filtering, and `zk check`.
 
 A second headless pass starts in an unrelated buffer with a configured personal archive. It checks eager unattached startup, readable fallback state, global search and CLI commands, diagnostics, attachment to the eager client, on-demand local archive precedence, invalid switch preservation, successful switching, and preservation of clients serving open local buffers. Pass `--keep` or set `KEEP_TMP=1` to retain the archives and reports.
 
@@ -226,4 +260,8 @@ The built-in search presentation uses `vim.ui.select` without preview. Backlinks
 
 Queries currently emit JSON only. CLI locations use UTF-8 byte ranges rather than line and column coordinates. Removal does not edit incoming references and never rewrites Zettel bodies.
 
-The initial category dictionary contains `thoughts`, `physics`, and `coding`. Category and keyword policy remain deferred product decisions. Archives may edit their user-owned `lib/zettel.typ`, but `zk` does not migrate it yet.
+The initial category dictionary contains `thoughts`, `physics`, and `coding`.
+Category completion reads only the saved library, so unsaved library edits do
+not affect candidates. Category and keyword policy remain deferred product
+decisions. Archives may edit their user-owned `lib/zettel.typ`, but `zk` does
+not migrate it yet.

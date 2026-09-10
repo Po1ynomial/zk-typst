@@ -264,6 +264,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let session_uri = Url::from_file_path(&session_path).map_err(|_| "session URI")?;
     let root_uri = Url::from_file_path(&archive).map_err(|_| "root URI")?;
 
+    let library_path = archive.join("lib/zettel.typ");
+    let library =
+        fs::read_to_string(&library_path)?.replace("coding: [Coding]", "history: [History]");
+    fs::write(&library_path, library)?;
+
     let mut client = Probe::spawn(&binary, &archive)?;
     let initialized = client.request(
         "initialize",
@@ -289,8 +294,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         "Unsaved source",
         "2603231410",
         "computed",
-        "Emoji 😀 links @2603231411 and misses @9999999999. Complete @2603",
-    );
+        "Emoji 😀 links @2603231411 and misses @9999999999.\nComplete @2603\nSearch @DISK tar",
+    )
+    .replace("#category.thoughts", "#category.hi");
     client.notify(
         "textDocument/didOpen",
         json!({
@@ -335,16 +341,53 @@ fn main() -> Result<(), Box<dyn Error>> {
             "position": position(&open_text, completion_offset, encoding),
         }),
     )?;
-    let target_completion = completion
+    assert_eq!(completion["isIncomplete"], true);
+    let target_completion = completion["items"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|item| item["label"] == "2603231411")
+        .find(|item| item["label"] == "Disk target [2603231411]")
         .expect("target completion");
-    assert_eq!(target_completion["detail"], "Disk target");
     assert_eq!(
         target_completion["textEdit"]["range"]["start"],
         position(&open_text, completion_offset - 4, encoding)
+    );
+
+    let title_completion_offset = open_text.rfind("@DISK tar").unwrap() + "@DISK tar".len();
+    let title_completion = client.request(
+        "textDocument/completion",
+        json!({
+            "textDocument": {"uri": source_uri},
+            "position": position(&open_text, title_completion_offset, encoding),
+            "context": {"triggerKind": 3},
+        }),
+    )?;
+    assert_eq!(title_completion["isIncomplete"], true);
+    let title_completion = &title_completion["items"][0];
+    assert_eq!(title_completion["label"], "Disk target [2603231411]");
+    assert_eq!(title_completion["textEdit"]["newText"], "2603231411");
+    assert_eq!(
+        title_completion["textEdit"]["range"]["start"],
+        position(
+            &open_text,
+            title_completion_offset - "DISK tar".len(),
+            encoding
+        )
+    );
+
+    let category_completion_offset = open_text.find("#category.hi").unwrap() + "#category.hi".len();
+    let category_completion = client.request(
+        "textDocument/completion",
+        json!({
+            "textDocument": {"uri": source_uri},
+            "position": position(&open_text, category_completion_offset, encoding),
+        }),
+    )?;
+    assert_eq!(category_completion["items"].as_array().unwrap().len(), 1);
+    assert_eq!(category_completion["items"][0]["label"], "history");
+    assert_eq!(
+        category_completion["items"][0]["textEdit"]["newText"],
+        "history"
     );
 
     let reference_offset = open_text.find("@2603231411").unwrap() + 2;
@@ -553,6 +596,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         &json!({
             "encoding": encoding.name(),
             "completion": true,
+            "referenceCompletion": true,
+            "categoryCompletion": true,
             "hover": true,
             "definition": true,
             "references": true,

@@ -91,6 +91,8 @@ jq -s -e '
   and (map(.encoding) == ["utf-8", "utf-16"])
   and all(.[];
     .completion
+    and .referenceCompletion
+    and .categoryCompletion
     and .archiveSearch
     and .hover
     and .definition
