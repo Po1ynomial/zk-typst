@@ -47,6 +47,23 @@ lib/
 
 Other directories are allowed but have no version-one archive semantics.
 
+## Git lifecycle
+
+After writing the fixed layout, `zk init` attempts to initialize Git when the
+`git` executable is available in `PATH`. It stages and commits only `zk.toml`
+and `lib/zettel.typ`, using
+`chore: initialize zettelkasten archive` as the commit message. A path-limited
+commit preserves unrelated staged changes in an existing repository.
+
+Git setup is best-effort. A missing executable is silent. A failed Git command
+produces a warning but does not fail archive initialization or roll back files
+and Git state.
+
+The command does not inspect parent repositories, choose a branch name, set
+identity or signing options, bypass hooks, create ignore files, or preserve the
+empty `zettel/` directory in Git. These remain under user and Git
+configuration control.
+
 ## Archive selection
 
 Filesystem discovery remains the default. Tools walk upward from their current path to the nearest `zk.toml`.
@@ -137,7 +154,10 @@ The text projection:
 - preserves equations and code expressions as source;
 - omits comments.
 
-Keywords and category are strings. Missing or malformed fields remain absent and produce diagnostics.
+Keywords and category are strings. Missing or malformed fields remain absent
+and produce diagnostics. Category completion reads keys from the saved direct
+top-level `#let category = (...)` dictionary in `lib/zettel.typ` without
+making that presentation library authoritative for Zettel metadata.
 
 ## Links and graph
 
@@ -276,13 +296,32 @@ It does not launch Neovim, provide a TUI, publish documents, compile Typst, or s
 
 ## LSP and Neovim responsibilities
 
-`zk lsp` provides metadata diagnostics, Zettel completion, hover, definitions, references, backlinks, and archive queries. `workspace/symbol` searches live metadata. The `zk.queryNode`, `zk.links`, and `zk.backlinks` execute commands expose the provider's targeted JSON values to the editor adapter.
+`zk lsp` provides metadata diagnostics, searchable Zettel completion, category
+completion, hover, definitions, references, backlinks, and archive queries.
+`workspace/symbol` searches live metadata. The `zk.queryNode`, `zk.links`, and
+`zk.backlinks` execute commands expose the provider's targeted JSON values to
+the editor adapter.
+
+Reference completion treats numeric text after `@` as an ID prefix and other
+text as a case-insensitive title query. It returns at most 100 items, marks the
+result incomplete for continued server filtering, and replaces the temporary
+query with the selected ID. Empty queries show the newest Zettel. The title
+matching and ranking rules remain provisional pending inspection with a large
+archive.
+
+For a direct top-level `#category.<query>`, the server returns only keys from a
+direct saved `#let category = (...)` dictionary in `lib/zettel.typ`. It does
+not evaluate computed library code.
 
 The Neovim plugin:
 
 - eagerly starts the configured fallback archive provider;
 - selects local archive clients before the session fallback;
 - routes Zettel-sensitive actions to `zk lsp`;
+- opens a newly created Zettel in the current window while preserving a
+  modified prior buffer as hidden;
+- exposes a completion filter that lets a configured frontend keep only ZK
+  items in category context;
 - conceals raw `@ID` text with target-title extmarks;
 - presents searches, backlinks, and diagnostics;
 - invokes explicit archive commands;
@@ -290,7 +329,17 @@ The Neovim plugin:
 
 Global archive commands use the selected client from any buffer. Buffer-local backlinks, refresh, implicit removal, and cursor language features still require a current Zettel. `:ZkSetArchive` changes selection only; archive command semantics do not change.
 
-The plugin does not parse source or maintain a graph. It uses `vim.ui.select` for live metadata search and quickfix for backlinks and diagnostics. Reference extmarks use provider byte spans, conceal the authored `@ID`, and insert target titles as inline virtual text. Context definition routes ten-digit references only to `zk lsp`; other positions retain Neovim's ordinary multi-server definition behavior.
+The plugin recognizes narrow source contexts for routing but does not extract
+metadata or maintain a graph. It uses `vim.ui.select` for live metadata search
+and quickfix for backlinks and diagnostics. Reference extmarks use provider
+byte spans, conceal the authored `@ID`, and insert target titles as inline
+virtual text. Context definition routes ten-digit references only to `zk lsp`;
+other positions retain Neovim's ordinary multi-server definition behavior.
+
+LSP cannot make one server's completion response exclusive. The plugin's
+frontend-neutral helper filters merged completion items when the user composes
+it into their completion frontend. Blink uses `sources.transform_items` for
+this hook. The plugin does not depend on Blink or mutate its configuration.
 
 ## Tinymist integration
 

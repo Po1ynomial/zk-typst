@@ -44,6 +44,7 @@ The version-one architecture and global archive access are implemented across th
 - [CLI](cli.md)
 - [Language server and editor](lsp.md)
 - [Global archive access](global-archive-access.md)
+- [Git lifecycle](git-lifecycle.md)
 - [Implementation and migration](implementation.md)
 
 ## References

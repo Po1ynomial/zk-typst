@@ -18,6 +18,8 @@ External tools may consume a disk-backed JSON graph. Live unsaved state is avail
 
 - One directory is one archive and one ID namespace.
 - `zk.toml` marks the root and declares `format = 1`.
+- `zk init` attempts a supplementary Git repository and initialization commit
+  when `git` is available, but Git failures do not block archive creation.
 - Neovim may configure one personal archive as a session fallback.
 - An explicit CLI archive path may select an archive outside the current directory.
 - Zettel live in one flat `zettel/` directory.
@@ -58,7 +60,8 @@ zk lsp
 ### Editor integration
 
 - Tinymist handles ordinary Typst syntax, completion, formatting, diagnostics, compilation, and preview.
-- `zk lsp` handles archive metadata, links, completion, navigation, backlinks, queries, and diagnostics.
+- `zk lsp` handles archive metadata, links, searchable reference and category
+  completion, navigation, backlinks, queries, and diagnostics.
 - A thin Neovim plugin presents ZK operations and title decorations.
 - Neovim starts the configured personal archive provider eagerly and can switch the session fallback.
 
@@ -69,6 +72,7 @@ zk lsp
 - IDs use local time with minute resolution and a ten-digit `YYMMDDHHmm` representation.
 - `zk` pins a supported Typst minor version because `typst-syntax` is not a stable independent protocol.
 - The archive remains relocatable and complete beneath its root.
+- Git is optional and never becomes canonical archive state.
 - Core behavior must work without Tinymist.
 - `zk` must remain useful while buffers and files are incomplete or malformed.
 
@@ -106,7 +110,10 @@ Version one succeeds when:
 - a user can initialize an archive and create a correctly shaped Zettel;
 - Neovim can find and create Zettel in a configured personal archive from any buffer;
 - shell commands can target an archive explicitly without changing directory;
-- Neovim can complete, display, and follow `@ID` references against unsaved state;
+- Neovim can search titles while completing, display, and follow `@ID`
+  references against unsaved state;
+- Neovim can restrict direct category completion to keys declared by the
+  archive library when its completion frontend uses the ZK filter;
 - backlinks and reference locations update as buffers change;
 - `zk check` reports malformed metadata, mismatched IDs, and dangling links;
 - removal is blocked when incoming references exist;

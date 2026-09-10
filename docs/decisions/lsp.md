@@ -18,7 +18,7 @@ Tinymist handles:
 
 - Typst syntax;
 - formatting;
-- ordinary Typst completion;
+- ordinary Typst completion outside ZK-owned contexts;
 - compilation diagnostics;
 - preview.
 
@@ -27,7 +27,8 @@ Tinymist handles:
 - metadata contracts;
 - `@ID` semantics;
 - archive diagnostics;
-- completion, hover, definition, and references for Zettel IDs;
+- searchable completion, hover, definition, and references for Zettel IDs;
+- category-key completion for the direct metadata form;
 - backlinks;
 - archive queries.
 
@@ -62,6 +63,49 @@ Switching the fallback stops its previous client but leaves clients for open loc
 
 The language server owns a live provider session. It feeds saved-file changes and versioned open-buffer overlays into that session, then uses the resulting graph for parsing, extraction, validation, completion, navigation, backlinks, queries, and source ranges.
 
+### Creation behavior
+
+`:ZkNew` opens the generated Zettel in the current window. When the current
+buffer has unsaved changes, Neovim hides that buffer without discarding its
+changes before editing the new path. Creation does not open a split or force a
+write.
+
+### Reference completion
+
+Text after `@` acts as a temporary completion query. Numeric text retains ID
+prefix matching. Other text searches titles only, case-insensitively.
+Accepting an item replaces the complete query after `@` with the target's
+ten-digit ID, while the menu displays the title and ID.
+
+The server returns at most 100 candidates and marks the list incomplete so the
+client requests updated results as the query changes. An empty query returns
+the 100 newest Zettel. ID matches rank before title matches. Title prefixes
+rank before title substrings, with newer IDs breaking ties.
+
+This matching and ranking policy is provisional. The implementation must keep
+it easy to inspect and adjust after use with a large archive.
+
+### Category completion
+
+In the direct top-level `#category.<query>` form, `zk lsp` completes only
+category keys. It reads those keys from the saved direct top-level
+`#let category = (...)` dictionary in `lib/zettel.typ` without evaluating
+Typst. A computed or malformed category definition yields no ZK category
+candidates.
+
+LSP has no way for one server to suppress another server's completion response.
+The Neovim plugin therefore exports a completion-item filter for frontends to
+compose into their configuration. In category context the filter retains only
+items from `zk lsp`; elsewhere it leaves all completion items unchanged.
+
+The supported Blink integration composes this helper into
+`sources.transform_items`. The plugin neither requires Blink nor mutates its
+configuration. Other completion frontends may apply the same rule.
+
+Reading category keys for completion does not make the library authoritative
+for stored metadata and does not settle category validation or controlled
+vocabulary policy.
+
 ### Overlay lifecycle
 
 `zk lsp` uses full-text synchronization. `didOpen` and each newer `didChange` install the complete buffer text as the source overlay; `typst-syntax` determines and incrementally reparses the changed region. Stale or repeated document versions are discarded.
@@ -76,11 +120,17 @@ The plugin owns:
 
 - concealing `@ID` and displaying the target title with extmarks;
 - routing `gd` and other context-sensitive actions;
+- filtering completion items in ZK-owned contexts when the configured
+  completion frontend uses its helper;
 - presenting backlinks, searches, and diagnostics;
 - invoking explicit archive commands;
 - applying LSP workspace edits.
 
-The plugin does not parse Zettel, read an index, maintain a graph, or duplicate archive rules. Its default presentation uses `vim.ui.select` for search, quickfix for backlinks and diagnostics, and inline extmarks for target titles. These choices remain replaceable by user configuration or picker integrations.
+The plugin recognizes narrow source contexts for routing but does not extract
+metadata, read an index, maintain a graph, or duplicate archive data. Its
+default presentation uses `vim.ui.select` for search, quickfix for backlinks
+and diagnostics, and inline extmarks for target titles. These choices remain
+replaceable by user configuration or picker integrations.
 
 ## Version-one editor scope
 
