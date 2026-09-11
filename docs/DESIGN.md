@@ -71,7 +71,10 @@ installations, fail canonical archive creation, or roll back files.
 Installed skills immediately become user-owned. `zk` does not validate or
 refresh them. The initial skill gives workers concise Zettelkasten writing
 discipline, the fixed source contract, command recipes, and guidance for
-checking their work. It does not settle category or keyword policy.
+checking their work. Its source is an ordinary
+`skills/zettelkasten/SKILL.md` file included in the executable at build time,
+so reviewers can inspect it without reading a Rust string literal. It does not
+settle category or keyword policy.
 
 Skills provide operating knowledge only. Agent orchestration, review,
 permissions, and live Neovim-buffer collaboration remain external to `zk`.

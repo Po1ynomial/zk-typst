@@ -153,6 +153,14 @@ impl Provider {
             .map(|index| &self.nodes[index])
     }
 
+    pub fn search_metadata(&self, query: &str) -> Vec<&ZettelNode> {
+        let query = query.to_lowercase();
+        self.nodes
+            .iter()
+            .filter(|node| node_matches(node, &query))
+            .collect()
+    }
+
     pub fn links_from(&self, id: &str) -> Vec<Link> {
         let Some(&source) = self.id_indices.get(id) else {
             return Vec::new();
@@ -680,6 +688,28 @@ fn archive_relative(root: &Path, path: &Path) -> String {
         .expect("archive paths are beneath the archive root")
         .to_string_lossy()
         .replace(std::path::MAIN_SEPARATOR, "/")
+}
+
+fn node_matches(node: &ZettelNode, query: &str) -> bool {
+    if query.is_empty() || node.id.contains(query) {
+        return true;
+    }
+    node.title
+        .as_ref()
+        .is_some_and(|title| title.text.to_lowercase().contains(query))
+        || node
+            .abstract_value
+            .as_ref()
+            .is_some_and(|abstract_value| abstract_value.text.to_lowercase().contains(query))
+        || node.keywords.as_ref().is_some_and(|keywords| {
+            keywords
+                .iter()
+                .any(|keyword| keyword.to_lowercase().contains(query))
+        })
+        || node
+            .category
+            .as_ref()
+            .is_some_and(|category| category.to_lowercase().contains(query))
 }
 
 fn insert_sorted(values: &mut Vec<u32>, value: u32) {

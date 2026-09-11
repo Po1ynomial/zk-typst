@@ -35,6 +35,13 @@ contract, the available `zk` commands, and a short writing method:
 - run `zk check` after changes.
 
 The skill does not prescribe a category or keyword policy.
+Its methodological background adapts
+[Introduction to the Zettelkasten Method](https://zettelkasten.de/introduction/)
+to this archive's Typst source and reference conventions.
+
+Bundled skill templates are plain Markdown files in the source repository.
+Rust includes those files in the executable rather than embedding their text
+in string literals.
 
 Skill installation is best-effort. If a bundled skill's destination already
 exists, `zk init` leaves it untouched and prints a warning. Other skill

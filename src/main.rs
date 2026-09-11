@@ -25,6 +25,10 @@ struct Cli {
 enum Command {
     /// Initialize an archive using the fixed version-one layout.
     Init {
+        /// Install bundled archive-local agent skills.
+        #[arg(long)]
+        agent_skills: bool,
+
         /// Directory to initialize.
         #[arg(default_value = ".")]
         path: PathBuf,
@@ -79,6 +83,9 @@ enum QueryCommand {
 
     /// Return incoming links for one Zettel.
     Backlinks { id: String },
+
+    /// Search saved Zettel metadata.
+    Search { query: String },
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -112,8 +119,13 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
     }
 
     match cli.command {
-        Command::Init { path } => {
+        Command::Init { path, agent_skills } => {
             let archive = Archive::init(path)?;
+            if agent_skills {
+                for warning in archive.install_agent_skills() {
+                    eprintln!("zk: warning: {warning}");
+                }
+            }
             println!("{}", archive.root().display());
         }
         Command::New => {
@@ -152,6 +164,9 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
                 QueryCommand::Backlinks { id } => {
                     require_node(&provider, &id)?;
                     write_json(&provider.links_to(&id))?;
+                }
+                QueryCommand::Search { query } => {
+                    write_json(&provider.search_metadata(&query))?;
                 }
             }
         }

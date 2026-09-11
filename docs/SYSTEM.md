@@ -17,6 +17,17 @@ lib/
 
 The default path is the current directory. The generated manifest declares `format = 1`. The bundled Typst library renders the fixed metadata forms and intercepts ten-digit references.
 
+`zk init --agent-skills [PATH]` also installs the complete bundled skill set
+under `.agents/skills/`. The current set contains
+`.agents/skills/zettelkasten/SKILL.md`, which documents the writing method,
+source contract, query workflow, whole-file lifecycle commands, and archive
+checks. Ordinary initialization does not create `.agents/`.
+
+Skill installation is best-effort. An existing same-name skill remains
+untouched and produces a warning. Other filesystem failures also warn without
+failing canonical archive creation. Once installed, skills are user-owned;
+later `zk` commands do not validate or update `.agents/`.
+
 Commands that require an existing archive accept the global `--archive PATH` option. An explicit path resolves relative to the process working directory, must itself be a valid archive root, and takes precedence over current-directory discovery. Without the option, commands retain upward `zk.toml` discovery. `zk init [PATH]` rejects `--archive`.
 
 `zk new` selects and validates an archive, then creates a Zettel under `zettel/`. The filename uses the current local minute in `YYMMDDHHmm.typ` form. If that ID exists, allocation advances by one minute until a free name is available. The command prints the new path relative to the archive root.
@@ -65,9 +76,15 @@ The query commands write JSON to standard output:
 zk query node <ID>
 zk query links <ID>
 zk query backlinks <ID>
+zk query search <QUERY>
 ```
 
 A node query returns metadata for one Zettel. Link and backlink queries return grouped links with every authored byte range. Missing node IDs fail the command.
+
+Metadata search compares the query case-insensitively with IDs, projected
+titles, projected abstracts, keywords, and categories. It returns every
+matching node as JSON in provider ID order without an implicit cap. The
+language server's workspace-symbol search uses the same matcher.
 
 `zk remove <ID>` deletes a canonical Zettel only when it has no incoming references. A blocked removal exits with status 1, leaves the file untouched, and prints every incoming source path and byte range. A successful removal prints the deleted archive-relative path.
 
@@ -172,7 +189,8 @@ offsets, but it does not extract metadata or retain archive relations.
 - `src/model.rs` defines the public node, link, diagnostic, and snapshot data shapes.
 - `src/provider.rs` loads files concurrently, owns mutable graph state, retains open overlays, rejects stale updates, derives integrity diagnostics, and produces snapshots.
 - `src/lsp.rs` implements protocol capabilities, synchronization, position conversion, diagnostics, navigation, search, and archive commands.
-- `src/templates.rs` contains the canonical manifest, Typst library, and Zettel templates.
+- `src/templates.rs` contains the canonical templates and bundled skill registry.
+- `skills/zettelkasten/SKILL.md` is the inspectable source for the bundled Zettelkasten operating skill.
 - `after/lsp/tinymist.lua` makes `zk.toml` a higher-priority Tinymist workspace marker.
 - `lua/zk/init.lua` configures the Neovim client, commands, mappings, pickers, quickfix presentation, CLI jobs, and extmarks.
 - `doc/zk.txt` documents plugin setup and commands for `:help zk`.
@@ -190,7 +208,16 @@ Run the automated checks:
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
-rumdl check docs
+rumdl check docs skills
+```
+
+Inspect optional skill installation and metadata search:
+
+```sh
+archive="$(mktemp -d)"
+cargo run -- init --agent-skills "$archive"
+cargo run -- --archive "$archive" query search "untitled"
+cat "$archive/.agents/skills/zettelkasten/SKILL.md"
 ```
 
 Inspect the provider with a generated archive:
@@ -269,3 +296,7 @@ Category completion reads only the saved library, so unsaved library edits do
 not affect candidates. Category and keyword policy remain deferred product
 decisions. Archives may edit their user-owned `lib/zettel.typ`, but `zk` does
 not migrate it yet.
+
+Metadata search has no implicit result cap, so broad or empty CLI searches can
+produce large JSON arrays. Installed agent skills are snapshots from archive
+creation and do not receive automatic updates.

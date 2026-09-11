@@ -1,5 +1,15 @@
 pub const MANIFEST: &str = "format = 1\n";
 
+pub struct AgentSkill {
+    pub name: &'static str,
+    pub source: &'static str,
+}
+
+pub const AGENT_SKILLS: &[AgentSkill] = &[AgentSkill {
+    name: "zettelkasten",
+    source: include_str!("../skills/zettelkasten/SKILL.md"),
+}];
+
 pub const LIBRARY: &str = r#"#let is-zettel-id(target) = {
   str(target).match(regex("^[0-9]{10}$")) != none
 }

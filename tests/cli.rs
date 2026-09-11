@@ -1,6 +1,7 @@
 use std::fs;
 use std::process::Command;
 
+use chrono::{Duration, NaiveDate};
 use tempfile::tempdir;
 
 fn zk() -> Command {
@@ -20,17 +21,42 @@ fn initialize(root: &std::path::Path) {
 }
 
 fn write_zettel(root: &std::path::Path, id: &str, title: &str, body: &str) {
+    write_zettel_with_metadata(
+        root,
+        id,
+        title,
+        &format!("Summary for {title}."),
+        &["test"],
+        "thoughts",
+        body,
+    );
+}
+
+fn write_zettel_with_metadata(
+    root: &std::path::Path,
+    id: &str,
+    title: &str,
+    abstract_text: &str,
+    keywords: &[&str],
+    category: &str,
+    body: &str,
+) {
+    let keywords = keywords
+        .iter()
+        .map(|keyword| format!("\"{keyword}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
     let source = format!(
         r#"#import "../lib/zettel.typ": zettel, abstract, keywords, category
 #show: zettel
 
 = {title} <{id}>
 
-#abstract[Summary for {title}.]
+#abstract[{abstract_text}]
 
-#keywords("test")
+#keywords({keywords})
 
-#category.thoughts
+#category.{category}
 
 {body}
 "#
@@ -80,6 +106,90 @@ fn initializes_an_archive_and_creates_a_zettel_from_a_nested_directory() {
     assert!(source.contains("#abstract[]"));
     assert!(source.contains("#keywords()"));
     assert!(source.contains("#category.thoughts"));
+}
+
+#[test]
+fn optionally_installs_archive_local_agent_skills() {
+    let temporary = tempdir().unwrap();
+    let plain = temporary.path().join("plain");
+    let enabled = temporary.path().join("enabled");
+
+    initialize(&plain);
+    assert!(!plain.join(".agents").exists());
+
+    let output = zk()
+        .args([
+            "init",
+            "--agent-skills",
+            enabled.to_str().expect("temporary path is UTF-8"),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "init failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    let skill = fs::read_to_string(enabled.join(".agents/skills/zettelkasten/SKILL.md")).unwrap();
+    assert!(skill.starts_with("---\nname: zettelkasten\n"));
+    assert!(skill.contains("zk query search"));
+    assert!(skill.contains("Broad or empty searches can produce large JSON output."));
+    assert!(skill.contains("Connection matters more than collecting"));
+    assert!(skill.contains("The prose around a link should state why the target is relevant."));
+}
+
+#[test]
+fn skill_installation_warns_without_overwriting_or_failing_init() {
+    let temporary = tempdir().unwrap();
+    let root = temporary.path().join("archive");
+    let skill = root.join(".agents/skills/zettelkasten/SKILL.md");
+    fs::create_dir_all(skill.parent().unwrap()).unwrap();
+    fs::write(&skill, "user-owned\n").unwrap();
+
+    let output = zk()
+        .args([
+            "init",
+            "--agent-skills",
+            root.to_str().expect("temporary path is UTF-8"),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(root.join("zk.toml").is_file());
+    assert_eq!(fs::read_to_string(skill).unwrap(), "user-owned\n");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("warning"));
+    assert!(stderr.contains("agent skill `zettelkasten` already exists"));
+}
+
+#[test]
+fn skill_installation_io_failure_does_not_fail_archive_creation() {
+    let temporary = tempdir().unwrap();
+    let root = temporary.path().join("archive");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join(".agents"), "path conflict\n").unwrap();
+
+    let output = zk()
+        .args([
+            "init",
+            "--agent-skills",
+            root.to_str().expect("temporary path is UTF-8"),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(root.join("zk.toml").is_file());
+    assert_eq!(
+        fs::read_to_string(root.join(".agents")).unwrap(),
+        "path conflict\n"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("warning"));
+    assert!(stderr.contains("cannot install agent skill `zettelkasten`"));
 }
 
 #[test]
@@ -231,6 +341,103 @@ fn queries_nodes_links_and_backlinks_as_json() {
     assert!(backlinks.status.success());
     let backlinks: serde_json::Value = serde_json::from_slice(&backlinks.stdout).unwrap();
     assert_eq!(backlinks[0]["source"], "2603231410");
+}
+
+#[test]
+fn searches_all_metadata_fields_without_capping_or_reordering_results() {
+    let temporary = tempdir().unwrap();
+    let root = temporary.path().join("archive");
+    initialize(&root);
+    write_zettel_with_metadata(
+        &root,
+        "2603231410",
+        "Path efficiency",
+        "First summary.",
+        &["networks"],
+        "thoughts",
+        "No links.",
+    );
+    write_zettel_with_metadata(
+        &root,
+        "2603231411",
+        "Second",
+        "A PATH through the archive.",
+        &["retrieval"],
+        "thoughts",
+        "No links.",
+    );
+    write_zettel_with_metadata(
+        &root,
+        "2603231412",
+        "Third",
+        "Another summary.",
+        &["pathfinding"],
+        "thoughts",
+        "No links.",
+    );
+    write_zettel_with_metadata(
+        &root,
+        "2603231413",
+        "Fourth",
+        "Last summary.",
+        &["retrieval"],
+        "pathways",
+        "No links.",
+    );
+    let start = NaiveDate::from_ymd_opt(2026, 1, 1)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap();
+    for offset in 0..101 {
+        let id = (start + Duration::minutes(offset))
+            .format("%y%m%d%H%M")
+            .to_string();
+        write_zettel_with_metadata(
+            &root,
+            &id,
+            "Bulk",
+            "Bulk summary.",
+            &["bulk"],
+            "bulk",
+            "No links.",
+        );
+    }
+
+    let output = zk()
+        .current_dir(&root)
+        .args(["query", "search", "PaTh"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let nodes: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let ids = nodes
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|node| node["id"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        ["2603231410", "2603231411", "2603231412", "2603231413"]
+    );
+    assert_eq!(nodes[0]["title"]["text"], "Path efficiency");
+
+    let id_output = zk()
+        .current_dir(&root)
+        .args(["query", "search", "1412"])
+        .output()
+        .unwrap();
+    let id_nodes: serde_json::Value = serde_json::from_slice(&id_output.stdout).unwrap();
+    assert_eq!(id_nodes.as_array().unwrap().len(), 1);
+    assert_eq!(id_nodes[0]["id"], "2603231412");
+
+    let empty_output = zk()
+        .current_dir(&root)
+        .args(["query", "search", ""])
+        .output()
+        .unwrap();
+    let all_nodes: serde_json::Value = serde_json::from_slice(&empty_output.stdout).unwrap();
+    assert_eq!(all_nodes.as_array().unwrap().len(), 105);
 }
 
 #[test]

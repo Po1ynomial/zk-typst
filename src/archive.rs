@@ -11,6 +11,7 @@ use crate::templates;
 const MANIFEST_NAME: &str = "zk.toml";
 const ZETTEL_DIR: &str = "zettel";
 const LIBRARY_PATH: &str = "lib/zettel.typ";
+const AGENT_SKILLS_DIR: &str = ".agents/skills";
 const ARCHIVE_FORMAT: u32 = 1;
 
 #[derive(Debug, Error)]
@@ -47,6 +48,19 @@ pub enum ArchiveError {
 
     #[error("invalid Zettel ID `{0}`; expected a valid `YYMMDDHHmm` timestamp")]
     InvalidId(String),
+}
+
+#[derive(Debug, Error)]
+pub enum AgentSkillInstallWarning {
+    #[error("agent skill `{name}` already exists at {path}; leaving it unchanged")]
+    AlreadyExists { name: &'static str, path: PathBuf },
+
+    #[error("cannot install agent skill `{name}` at {path}: {source}")]
+    Io {
+        name: &'static str,
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,6 +166,13 @@ impl Archive {
         self.create_zettel_at(Local::now().naive_local())
     }
 
+    pub fn install_agent_skills(&self) -> Vec<AgentSkillInstallWarning> {
+        templates::AGENT_SKILLS
+            .iter()
+            .filter_map(|skill| self.install_agent_skill(skill).err())
+            .collect()
+    }
+
     pub fn remove_zettel(&self, id: &str) -> Result<PathBuf, ArchiveError> {
         if !is_zettel_id(id) {
             return Err(ArchiveError::InvalidId(id.to_owned()));
@@ -185,6 +206,53 @@ impl Archive {
                 Err(source) => return Err(io_error(&path, source)),
             }
         }
+    }
+
+    fn install_agent_skill(
+        &self,
+        skill: &templates::AgentSkill,
+    ) -> Result<(), AgentSkillInstallWarning> {
+        let skills_dir = self.root.join(AGENT_SKILLS_DIR);
+        fs::create_dir_all(&skills_dir).map_err(|source| AgentSkillInstallWarning::Io {
+            name: skill.name,
+            path: skills_dir.clone(),
+            source,
+        })?;
+
+        let skill_dir = skills_dir.join(skill.name);
+        match fs::create_dir(&skill_dir) {
+            Ok(()) => {}
+            Err(source) if source.kind() == std::io::ErrorKind::AlreadyExists => {
+                return Err(AgentSkillInstallWarning::AlreadyExists {
+                    name: skill.name,
+                    path: skill_dir,
+                });
+            }
+            Err(source) => {
+                return Err(AgentSkillInstallWarning::Io {
+                    name: skill.name,
+                    path: skill_dir,
+                    source,
+                });
+            }
+        }
+
+        let path = skill_dir.join("SKILL.md");
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|source| AgentSkillInstallWarning::Io {
+                name: skill.name,
+                path: path.clone(),
+                source,
+            })?;
+        file.write_all(skill.source.as_bytes())
+            .map_err(|source| AgentSkillInstallWarning::Io {
+                name: skill.name,
+                path,
+                source,
+            })
     }
 }
 
@@ -269,6 +337,35 @@ mod tests {
             fs::read_to_string(root.join("lib/zettel.typ")).unwrap(),
             templates::LIBRARY
         );
+        assert!(!root.join(".agents").exists());
+    }
+
+    #[test]
+    fn installs_bundled_agent_skills_without_overwriting_existing_skills() {
+        let temporary = tempdir().unwrap();
+        let archive = Archive::init(temporary.path()).unwrap();
+
+        assert!(archive.install_agent_skills().is_empty());
+        let skill_path = temporary
+            .path()
+            .join(".agents/skills/zettelkasten/SKILL.md");
+        assert_eq!(
+            fs::read_to_string(&skill_path).unwrap(),
+            templates::AGENT_SKILLS[0].source
+        );
+
+        fs::write(&skill_path, "user-owned\n").unwrap();
+        let warnings = archive.install_agent_skills();
+
+        assert_eq!(warnings.len(), 1);
+        assert!(matches!(
+            &warnings[0],
+            AgentSkillInstallWarning::AlreadyExists {
+                name: "zettelkasten",
+                ..
+            }
+        ));
+        assert_eq!(fs::read_to_string(skill_path).unwrap(), "user-owned\n");
     }
 
     #[test]

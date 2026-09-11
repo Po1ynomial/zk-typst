@@ -492,14 +492,8 @@ impl LanguageServer for Backend {
         params: WorkspaceSymbolParams,
     ) -> RpcResult<Option<Vec<SymbolInformation>>> {
         let state = self.state.read().unwrap_or_else(|error| error.into_inner());
-        let query = params.query.to_lowercase();
         let mut symbols = Vec::new();
-        for node in state
-            .provider
-            .nodes()
-            .iter()
-            .filter(|node| node_matches(node, &query))
-        {
+        for node in state.provider.search_metadata(&params.query) {
             let title = node
                 .title
                 .as_ref()
@@ -542,28 +536,6 @@ impl LanguageServer for Backend {
         .map_err(internal_error)?;
         Ok(Some(value))
     }
-}
-
-fn node_matches(node: &ZettelNode, query: &str) -> bool {
-    if query.is_empty() || node.id.contains(query) {
-        return true;
-    }
-    node.title
-        .as_ref()
-        .is_some_and(|title| title.text.to_lowercase().contains(query))
-        || node
-            .abstract_value
-            .as_ref()
-            .is_some_and(|abstract_value| abstract_value.text.to_lowercase().contains(query))
-        || node.keywords.as_ref().is_some_and(|keywords| {
-            keywords
-                .iter()
-                .any(|keyword| keyword.to_lowercase().contains(query))
-        })
-        || node
-            .category
-            .as_ref()
-            .is_some_and(|category| category.to_lowercase().contains(query))
 }
 
 fn negotiate_encoding(params: &InitializeParams) -> PositionEncoding {
