@@ -106,6 +106,12 @@ The server advertises full-text document synchronization. Open, change, save, an
 
 The server prefers UTF-8 positions when the client offers them and otherwise uses UTF-16. Its adapter converts the provider's byte ranges using retained open-buffer text or one read of the closed file.
 
+Initialization advertises ZK protocol version 1 and these boolean feature
+flags under `capabilities.experimental.zk`: `archiveQueries`,
+`categoryCompletion`, `referenceCompletion`, and
+`referenceTitleDecorations`. This editor protocol version is independent of
+the archive format and provider snapshot schema.
+
 Implemented requests:
 
 - `textDocument/completion` treats numeric text after `@` as an ID prefix and
@@ -137,6 +143,11 @@ require("zk").setup({
 The option expands `~` and environment variables, resolves relative paths against Neovim's current working directory, canonicalizes the result, and checks the canonical archive layout. The selected fallback is readable as `require("zk").archive`.
 
 A valid fallback eagerly starts one unattached `{ "zk", "lsp" }` client. Opening one of its Zettel attaches the buffer to that existing client. The nearest `zk.toml` above the current buffer takes precedence; another local archive starts or reuses its own client when a command or Zettel needs it. Without the option, local discovery behaves as before.
+
+The plugin accepts only ZK protocol version 1. A missing or unsupported
+descriptor fails client startup with a clear error. Accepted feature flags are
+stored with the client; reference title refresh is enabled only when the
+server advertises `referenceTitleDecorations`.
 
 `:ZkSetArchive [PATH]` reports or replaces the session fallback. A replacement becomes visible only after its server initializes. Invalid paths and failed server startup leave the previous fallback unchanged. The plugin stops an unused previous fallback client but preserves it when open Zettel still use it.
 

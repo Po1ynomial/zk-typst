@@ -34,6 +34,13 @@ Tinymist handles:
 
 The Neovim plugin routes context-sensitive actions. On `@ID`, definition goes to the ZK server. Elsewhere it uses normal LSP definition.
 
+The initialization result advertises ZK protocol version 1 under
+`capabilities.experimental.zk`, together with boolean feature flags for
+archive queries, category completion, reference completion, and reference
+title decorations. The Neovim adapter rejects a missing or unsupported
+protocol version. It checks feature flags for optional presentation behavior
+instead of deriving support from the server's executable version.
+
 Live archive search uses `workspace/symbol`. Targeted adapter queries use the `zk.queryNode`, `zk.links`, and `zk.backlinks` execute commands with one Zettel ID argument.
 
 ## Reference validity

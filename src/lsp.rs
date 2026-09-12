@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use tower_lsp::jsonrpc::{Error as RpcError, Result as RpcResult};
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -19,6 +19,7 @@ const QUERY_NODE: &str = "zk.queryNode";
 const QUERY_LINKS: &str = "zk.links";
 const QUERY_BACKLINKS: &str = "zk.backlinks";
 const COMPLETION_LIMIT: usize = 100;
+pub const ZK_PROTOCOL_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PositionEncoding {
@@ -148,6 +149,17 @@ impl LanguageServer for Backend {
                     ],
                     work_done_progress_options: Default::default(),
                 }),
+                experimental: Some(json!({
+                    "zk": {
+                        "protocolVersion": ZK_PROTOCOL_VERSION,
+                        "features": {
+                            "archiveQueries": true,
+                            "categoryCompletion": true,
+                            "referenceCompletion": true,
+                            "referenceTitleDecorations": true,
+                        },
+                    },
+                })),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {

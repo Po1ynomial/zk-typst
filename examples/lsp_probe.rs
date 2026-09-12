@@ -288,6 +288,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         encoding.name()
     );
     assert_eq!(initialized["capabilities"]["textDocumentSync"]["change"], 1);
+    assert_eq!(
+        initialized["capabilities"]["experimental"]["zk"]["protocolVersion"],
+        1
+    );
+    assert_eq!(
+        initialized["capabilities"]["experimental"]["zk"]["features"]["archiveQueries"],
+        true
+    );
+    assert_eq!(
+        initialized["capabilities"]["experimental"]["zk"]["features"]["referenceTitleDecorations"],
+        true
+    );
     client.notify("initialized", json!({}))?;
 
     let open_text = zettel(

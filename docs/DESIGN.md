@@ -44,6 +44,24 @@ release, rejects unsupported protocol versions, and checks feature flags for
 optional behavior. Plugin integration tests run against the minimum and latest
 supported engine releases.
 
+Protocol version 1 uses `capabilities.experimental.zk`:
+
+```json
+{
+  "protocolVersion": 1,
+  "features": {
+    "archiveQueries": true,
+    "categoryCompletion": true,
+    "referenceCompletion": true,
+    "referenceTitleDecorations": true
+  }
+}
+```
+
+The integer versions the editor contract rather than the archive format or
+graph snapshot schema. Feature flags allow compatible servers to omit optional
+behavior without making clients infer support from an executable version.
+
 Local development uses sibling checkouts and explicit executable paths. A
 protocol addition lands compatibly in `zk` before `zk.nvim` requires it.
 
@@ -374,6 +392,8 @@ coordinate workers, or silently rewrite Zettel bodies.
 
 `zk lsp` provides metadata diagnostics, searchable Zettel completion, category
 completion, hover, definitions, references, backlinks, and archive queries.
+It advertises ZK protocol version 1 and its feature flags under the standard
+experimental server-capability field.
 `workspace/symbol` searches live metadata. The `zk.queryNode`, `zk.links`, and
 `zk.backlinks` execute commands expose the provider's targeted JSON values to
 the editor adapter.
@@ -391,6 +411,7 @@ not evaluate computed library code.
 
 The Neovim plugin:
 
+- validates the ZK protocol descriptor before accepting a client;
 - eagerly starts the configured fallback archive provider;
 - selects local archive clients before the session fallback;
 - routes Zettel-sensitive actions to `zk lsp`;
