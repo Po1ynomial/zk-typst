@@ -6,6 +6,10 @@ Build a self-contained, editor-native Zettelkasten whose durable state is plain 
 
 The archive should support the daily work of creating atomic notes, linking ideas in prose, finding prior notes, following links, inspecting backlinks, and maintaining archive integrity. Rust provides archive semantics through the `zk` executable and its companion language server. Neovim is the primary editor. Tinymist continues to provide ordinary Typst language support.
 
+The Rust tool and Neovim plugin are separate products. They live in
+independent `zk` and `zk.nvim` repositories and communicate through a
+versioned editor-neutral protocol.
+
 ## Users
 
 The version-one user is a single person maintaining one archive on one machine over many years. They work mainly in Neovim and also use shell commands for checks and queries.
@@ -70,7 +74,8 @@ zk lsp
 - Tinymist handles ordinary Typst syntax, completion, formatting, diagnostics, compilation, and preview.
 - `zk lsp` handles archive metadata, links, searchable reference and category
   completion, navigation, backlinks, queries, and diagnostics.
-- A thin Neovim plugin presents ZK operations and title decorations.
+- The independently released `zk.nvim` plugin presents ZK operations and title
+  decorations.
 - Neovim starts the configured personal archive provider eagerly and can switch the session fallback.
 
 ## Constraints
@@ -81,6 +86,10 @@ zk lsp
 - `zk` pins a supported Typst minor version because `typst-syntax` is not a stable independent protocol.
 - The archive remains relocatable and complete beneath its root.
 - Git is optional and never becomes canonical archive state.
+- `zk` and `zk.nvim` have independent versions and no submodule or umbrella
+  repository.
+- `zk.nvim` declares a minimum `zk` version and negotiates an explicit ZK
+  protocol version and feature flags.
 - Core behavior must work without Tinymist.
 - `zk` must remain useful while buffers and files are incomplete or malformed.
 
@@ -103,6 +112,9 @@ zk lsp
 ## Quality expectations
 
 - Source parsing, metadata extraction, and graph construction use one shared implementation across CLI and LSP consumers.
+- The Rust repository contains no Neovim-specific code or tests after the
+  repository split.
+- The Neovim plugin does not duplicate archive parsing or graph semantics.
 - Diagnostics point to exact authored source ranges whenever a relevant range exists.
 - Open-buffer changes cannot be overwritten by stale disk or parse results.
 - Commands are noninteractive and scriptable.
@@ -124,6 +136,8 @@ Version one succeeds when:
   references against unsaved state;
 - Neovim can restrict direct category completion to keys declared by the
   archive library when its completion frontend uses the ZK filter;
+- `zk.nvim` detects incompatible ZK protocol versions and tests against its
+  minimum and latest supported `zk` releases;
 - backlinks and reference locations update as buffers change;
 - `zk check` reports malformed metadata, mismatched IDs, and dangling links;
 - removal is blocked when incoming references exist;

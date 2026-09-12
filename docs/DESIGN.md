@@ -25,6 +25,38 @@ Disk files ->| provider  |------>| zk lsp         |
 
 Tinymist and `zk lsp` are separate language servers. They receive the same editor buffers but do not exchange state.
 
+## Repository boundaries
+
+`zk` and `zk.nvim` are independent repositories with independent semantic
+versions. They have no submodule or umbrella repository.
+
+The `zk` repository owns archive semantics, the CLI, provider, language
+server, protocol contract, Typst templates, and archive-local skills. It tests
+the LSP over its real transport but contains no Neovim-specific code or tests.
+
+The `zk.nvim` repository owns Lua, Neovim and Tinymist integration, user-facing
+plugin documentation, and headless Neovim tests. It owns presentation and
+editor workflow but does not extract metadata or retain archive relations.
+
+`zk lsp` reports an integer ZK protocol version and feature flags in its
+initialization capabilities. The plugin declares a minimum supported `zk`
+release, rejects unsupported protocol versions, and checks feature flags for
+optional behavior. Plugin integration tests run against the minimum and latest
+supported engine releases.
+
+Local development uses sibling checkouts and explicit executable paths. A
+protocol addition lands compatibly in `zk` before `zk.nvim` requires it.
+
+Each repository has its own `PROJECT.md`, `DESIGN.md`, `SYSTEM.md`, decisions,
+and research. Extraction factors plugin knowledge from the current mixed
+documents into focused `zk.nvim` artifacts. It does not copy the current SDD
+log.
+
+The existing SDD state stays with `zk` as historical provenance and tracks
+only engine work after extraction. `zk.nvim` starts a fresh SDD state when a
+future session first onboards from that repository. There is no shared
+cross-repository slice database.
+
 ## Archive root and layout
 
 `zk.toml` marks the archive root:

@@ -46,6 +46,7 @@ The version-one architecture and global archive access are implemented across th
 - [Global archive access](global-archive-access.md)
 - [Git lifecycle](git-lifecycle.md)
 - [Agent workers](agent-workers.md)
+- [Repository boundaries](repository-boundaries.md)
 - [Implementation and migration](implementation.md)
 
 ## References
