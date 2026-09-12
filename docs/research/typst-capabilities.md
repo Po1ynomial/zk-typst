@@ -109,7 +109,7 @@ This does not establish how an independently compiled Zettel gains access to hea
 
 ### Design relevance
 
-This capability is outside the version-one boundary. A single Zettel lacks the archive context needed for title resolution, and full dependency resolution or aggregate compilation is deferred. Version one uses the Typst handler only to prevent unresolved-reference diagnostics. `zk lsp` resolves IDs and titles, and Neovim displays titles as buffer decorations.
+This capability is outside the version-one boundary. A single Zettel lacks the archive context needed for title resolution, and full dependency resolution or aggregate compilation is deferred. Version one uses the Typst handler only to prevent unresolved-reference diagnostics. `zk lsp` resolves IDs and titles, and editor clients may display titles as decorations.
 
 Confidence: high for the tested compiler versions and same-document targets. Relevance to version one: none beyond confirming that the deferred compilation path is possible in principle.
 

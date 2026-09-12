@@ -7,7 +7,7 @@ Status: accepted
 Agent workers may use `zk` for archive queries and whole-file lifecycle
 operations. `zk` does not coordinate workers or act as the primary
 collaboration channel. External editor tooling may coordinate agents with live
-Neovim buffers.
+buffers.
 
 ### Archive-local skills
 
@@ -94,7 +94,7 @@ in the general CLI rather than an agent integration. Reusing the LSP matcher
 avoids two meanings of archive search. Complete deterministic results preserve
 ordinary shell composability.
 
-Live collaboration already has an external Neovim path. Adding shared
+Live collaboration already has an external editor path. Adding shared
 sessions, write coordination, or structured edits to `zk` would duplicate that
 path and enlarge the archive manager without improving its core data model.
 

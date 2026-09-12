@@ -46,6 +46,6 @@ Restricting metadata to direct top-level forms removes ambiguity between source 
 - [Metadata](metadata.md)
 - [References and graph](references.md)
 - [CLI](cli.md)
-- [Language server and editor](lsp.md)
-- [Global archive access](global-archive-access.md)
+- [Language server](lsp.md)
+- [Repository boundaries](repository-boundaries.md)
 - [Implementation and migration](implementation.md)

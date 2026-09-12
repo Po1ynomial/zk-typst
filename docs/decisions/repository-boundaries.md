@@ -94,7 +94,7 @@ do not share slice IDs or an SDD database.
 
 ## History and extraction
 
-The new plugin repository is created from filtered `zk` history rather than a
+The plugin repository was created from filtered `zk` history rather than a
 fresh initial commit. The extraction preserves authors, timestamps, commit
 messages, and plugin-owned changes for:
 
@@ -112,15 +112,14 @@ Filtering necessarily creates new commit IDs. Mixed commits retain only their
 plugin-owned changes, and commits with no remaining changes disappear from the
 filtered history.
 
-The existing local `zk.nvim` staging directory contains symlinks into the
-current repository. Extraction replaces those links with real files and
-initializes the filtered history there. The `zk` repository keeps its complete
-past history and SDD log, then removes plugin-owned files in an ordinary split
-commit.
+The extraction used `zk` commit `5891b57`, where protocol version reporting
+and client validation had passed together. Its filtered plugin commit is
+`5ec586a`. Commit `d169ef0` replaced the staging symlinks with an independent
+plugin checkout, factored current plugin documentation, and made integration
+tests consume an explicit `ZK_BIN`.
 
-Protocol version reporting and plugin validation are implemented while both
-components remain in the current checkout. The history split then starts from
-a revision where the pair is known to work.
+The `zk` repository keeps its complete past history and SDD log, then removes
+plugin-owned files in an ordinary split commit.
 
 ## Rationale
 

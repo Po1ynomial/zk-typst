@@ -3,27 +3,16 @@
 ## System shape
 
 ```text
-                              +--------------------+
-                              | Tinymist           |
-                              | Typst intelligence |
-                              +--------------------+
-                                        ^
-                                        |
-Neovim buffers ----+--------------------+
-                   |
-                   v
-             +-----------+       +----------------+
-Disk files ->| provider  |------>| zk lsp         |
-             | session   |       +----------------+
-             +-----------+               |
-                   |                      v
-                   |               Neovim adapter
-                   |
-                   +----> CLI commands
-                   +----> JSON snapshot
+Editor buffers --------------------+
+                                    v
+Disk files ----> provider session ----> zk lsp
+                     |
+                     +----> CLI commands
+                     +----> JSON snapshot
 ```
 
-Tinymist and `zk lsp` are separate language servers. They receive the same editor buffers but do not exchange state.
+Each consumer owns a provider session. Editor clients send buffer state through
+LSP and may run other Typst language servers independently.
 
 ## Repository boundaries
 
@@ -66,14 +55,14 @@ Local development uses sibling checkouts and explicit executable paths. A
 protocol addition lands compatibly in `zk` before `zk.nvim` requires it.
 
 Each repository has its own `PROJECT.md`, `DESIGN.md`, `SYSTEM.md`, decisions,
-and research. Extraction factors plugin knowledge from the current mixed
-documents into focused `zk.nvim` artifacts. It does not copy the current SDD
-log.
+and research. Plugin knowledge from the former mixed documents is factored
+into focused `zk.nvim` artifacts. The plugin repository does not contain a
+copy of the current SDD log.
 
-The existing SDD state stays with `zk` as historical provenance and tracks
-only engine work after extraction. `zk.nvim` starts a fresh SDD state when a
-future session first onboards from that repository. There is no shared
-cross-repository slice database.
+The existing SDD state stays with `zk` as historical provenance and now tracks
+only engine work. `zk.nvim` starts a fresh SDD state when a future session
+first onboards from that repository. There is no shared cross-repository slice
+database.
 
 ## Archive root and layout
 
@@ -83,7 +72,10 @@ cross-repository slice database.
 format = 1
 ```
 
-Tools walk upward from the current path until they find this file. The Neovim plugin extends Tinymist's root markers so `zk.toml` selects the same workspace root used by `zk lsp`. This keeps `../lib/zettel.typ` inside Typst's project sandbox without requiring a Git repository.
+Tools walk upward from the current path until they find this file. LSP clients
+use the archive root as the workspace root. This keeps
+`../lib/zettel.typ` inside Typst's project sandbox without requiring a Git
+repository.
 
 Canonical paths are fixed:
 
@@ -127,7 +119,7 @@ so reviewers can inspect it without reading a Rust string literal. It does not
 settle category or keyword policy.
 
 Skills provide operating knowledge only. Agent orchestration, review,
-permissions, and live Neovim-buffer collaboration remain external to `zk`.
+permissions, and live editor collaboration remain external to `zk`.
 
 ## Git lifecycle
 
@@ -150,15 +142,11 @@ configuration control.
 
 Filesystem discovery remains the default. Tools walk upward from their current path to the nearest `zk.toml`.
 
-The Neovim adapter may also receive `archive` in `require("zk").setup`. The nearest archive above the current buffer wins; otherwise the adapter uses its session fallback. A valid fallback starts one eager, initially unattached `zk lsp` client so search and other archive-level commands work before a Zettel buffer opens.
-
-If a command selects a local archive without a running client, the adapter starts one on demand without attaching the unrelated current buffer.
-
-`:ZkSetArchive [PATH]` reports or replaces the session fallback. A successful switch stops only the previous fallback client. Clients serving open buffers from other local archives remain active. Invalid switches leave current state untouched.
-
 The CLI has no persistent fallback. `--archive PATH` explicitly selects an existing archive and takes precedence over current-directory discovery. `zk init [PATH]` rejects that option.
 
-Neovim expands user and environment expressions in configured paths, resolves relative paths against its current working directory, and canonicalizes valid archives. CLI relative paths resolve against the process working directory.
+CLI relative paths resolve against the process working directory. An LSP client
+may launch one server process per selected archive with `--archive PATH` or
+with that archive as the process working directory.
 
 ## Zettel source contract
 
@@ -385,10 +373,10 @@ command returns every matching node in provider ID order without an implicit
 cap. The bundled skill warns that broad searches can produce large JSON
 arrays.
 
-It does not launch Neovim, provide a TUI, publish documents, compile Typst,
+It does not launch an editor, provide a TUI, publish documents, compile Typst,
 coordinate workers, or silently rewrite Zettel bodies.
 
-## LSP and Neovim responsibilities
+## Language-server responsibilities
 
 `zk lsp` provides metadata diagnostics, searchable Zettel completion, category
 completion, hover, definitions, references, backlinks, and archive queries.
@@ -396,7 +384,7 @@ It advertises ZK protocol version 1 and its feature flags under the standard
 experimental server-capability field.
 `workspace/symbol` searches live metadata. The `zk.queryNode`, `zk.links`, and
 `zk.backlinks` execute commands expose the provider's targeted JSON values to
-the editor adapter.
+editor clients.
 
 Reference completion treats numeric text after `@` as an ID prefix and other
 text as a case-insensitive title query. It returns at most 100 items, marks the
@@ -409,34 +397,9 @@ For a direct top-level `#category.<query>`, the server returns only keys from a
 direct saved `#let category = (...)` dictionary in `lib/zettel.typ`. It does
 not evaluate computed library code.
 
-The Neovim plugin:
-
-- validates the ZK protocol descriptor before accepting a client;
-- eagerly starts the configured fallback archive provider;
-- selects local archive clients before the session fallback;
-- routes Zettel-sensitive actions to `zk lsp`;
-- opens created, selected, and definition-target Zettel in the invocation
-  window while preserving a modified prior buffer as hidden;
-- exposes a completion filter that lets a configured frontend keep only ZK
-  items in category context;
-- conceals raw `@ID` text with target-title extmarks;
-- presents searches, backlinks, and diagnostics;
-- invokes explicit archive commands;
-- applies LSP workspace edits.
-
-Global archive commands use the selected client from any buffer. Buffer-local backlinks, refresh, implicit removal, and cursor language features still require a current Zettel. `:ZkSetArchive` changes selection only; archive command semantics do not change.
-
-The plugin recognizes narrow source contexts for routing but does not extract
-metadata or maintain a graph. It uses `vim.ui.select` for live metadata search
-and quickfix for backlinks and diagnostics. Reference extmarks use provider
-byte spans, conceal the authored `@ID`, and insert target titles as inline
-virtual text. Context definition routes ten-digit references only to `zk lsp`;
-other positions retain Neovim's ordinary multi-server definition behavior.
-
-LSP cannot make one server's completion response exclusive. The plugin's
-frontend-neutral helper filters merged completion items when the user composes
-it into their completion frontend. Blink uses `sources.transform_items` for
-this hook. The plugin does not depend on Blink or mutate its configuration.
+Protocol version 1 advertises archive queries, category completion, reference
+completion, and reference-title decoration data as feature flags. Clients
+decide how to present those capabilities.
 
 ## Tinymist integration
 

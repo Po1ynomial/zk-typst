@@ -2,24 +2,17 @@
 
 ## Goal
 
-Build a self-contained, editor-native Zettelkasten whose durable state is plain Typst source.
+Build a self-contained Zettelkasten engine whose durable state is plain Typst source.
 
-The archive should support the daily work of creating atomic notes, linking ideas in prose, finding prior notes, following links, inspecting backlinks, and maintaining archive integrity. Rust provides archive semantics through the `zk` executable and its companion language server. Neovim is the primary editor. Tinymist continues to provide ordinary Typst language support.
+The archive should support creating atomic notes, linking ideas in prose, finding prior notes, following links, inspecting backlinks, and maintaining archive integrity. The `zk` executable provides archive semantics through a scriptable CLI, reusable Rust provider, and editor-neutral language server.
 
-The Rust tool and Neovim plugin are separate products. They live in
-independent `zk` and `zk.nvim` repositories and communicate through a
-versioned editor-neutral protocol.
+The independently maintained `zk.nvim` repository is one client of this engine. It is not part of this repository or release.
 
 ## Users
 
-The version-one user is a single person maintaining one archive on one machine over many years. They work mainly in Neovim and also use shell commands for checks and queries.
+The version-one user is a single person maintaining one archive on one machine over many years. They may work through shell commands, an LSP client, or another consumer of the JSON graph.
 
-External tools may consume a disk-backed JSON graph. Live unsaved state is available only to bundled consumers in the active editor session.
-
-Agent workers may participate through external editor coordination. `zk`
-provides optional archive-local operating skills, data queries, and the same
-whole-file creation and removal operations available to human users. It does
-not orchestrate collaboration.
+Agent workers may use optional archive-local operating skills and the same saved-state CLI available to the user. Live unsaved state belongs to the client session that owns the corresponding `zk lsp` process.
 
 ## Version-one scope
 
@@ -27,12 +20,8 @@ not orchestrate collaboration.
 
 - One directory is one archive and one ID namespace.
 - `zk.toml` marks the root and declares `format = 1`.
-- `zk init` attempts a supplementary Git repository and initialization commit
-  when `git` is available, but Git failures do not block archive creation.
-- An explicit `zk init` flag may install bundled archive-local agent skills.
-  Ordinary initialization remains agent-neutral, and installed skills are
-  user-owned.
-- Neovim may configure one personal archive as a session fallback.
+- `zk init` attempts supplementary Git setup when `git` is available, but Git failures do not block archive creation.
+- `zk init --agent-skills` may install bundled archive-local skills. Installed skills immediately become user-owned.
 - An explicit CLI archive path may select an archive outside the current directory.
 - Zettel live in one flat `zettel/` directory.
 - Archive-specific Typst presentation code lives in `lib/`.
@@ -53,8 +42,7 @@ not orchestrate collaboration.
 - Every link retains the byte range of each authored occurrence.
 - Closed-file source and syntax trees are discarded after extraction.
 - Open buffers retain incrementally updated sources and override disk files.
-- The internal Rust API supports live bundled consumers.
-- `zk graph --format json` emits a versioned disk-backed snapshot for other consumers.
+- `zk graph --format json` emits a versioned disk-backed snapshot.
 
 ### Commands
 
@@ -69,14 +57,12 @@ zk graph --format json
 zk lsp
 ```
 
-### Editor integration
+### Language server
 
-- Tinymist handles ordinary Typst syntax, completion, formatting, diagnostics, compilation, and preview.
-- `zk lsp` handles archive metadata, links, searchable reference and category
-  completion, navigation, backlinks, queries, and diagnostics.
-- The independently released `zk.nvim` plugin presents ZK operations and title
-  decorations.
-- Neovim starts the configured personal archive provider eagerly and can switch the session fallback.
+- `zk lsp` handles archive metadata, links, completion, navigation, backlinks, queries, and diagnostics.
+- Full-text document synchronization supplies live unsaved overlays.
+- LSP initialization advertises an explicit ZK protocol version and feature flags.
+- Protocol-level tests use the real standard-input and standard-output transport.
 
 ## Constraints
 
@@ -86,20 +72,18 @@ zk lsp
 - `zk` pins a supported Typst minor version because `typst-syntax` is not a stable independent protocol.
 - The archive remains relocatable and complete beneath its root.
 - Git is optional and never becomes canonical archive state.
-- `zk` and `zk.nvim` have independent versions and no submodule or umbrella
-  repository.
-- `zk.nvim` declares a minimum `zk` version and negotiates an explicit ZK
-  protocol version and feature flags.
-- Core behavior must work without Tinymist.
-- `zk` must remain useful while buffers and files are incomplete or malformed.
+- The engine must remain useful while buffers and files are incomplete or malformed.
+- Editor clients remain separate repositories and releases.
+- Protocol versions are independent of executable, archive-format, and graph-schema versions.
 
 ## Non-goals for version one
 
 - Publishing or compiling the archive
-- Full dependency-resolution or aggregate Typst compilation
+- Full dependency resolution or aggregate Typst compilation
 - Typst-evaluated authoritative metadata
 - Graph visualization
 - A TUI or picker owned by `zk`
+- Editor-specific code or presentation
 - Transclusion
 - Structure-note-specific tooling
 - Multiple structural node types
@@ -112,15 +96,11 @@ zk lsp
 ## Quality expectations
 
 - Source parsing, metadata extraction, and graph construction use one shared implementation across CLI and LSP consumers.
-- The Rust repository contains no Neovim-specific code or tests after the
-  repository split.
-- The Neovim plugin does not duplicate archive parsing or graph semantics.
+- The repository contains no editor-specific client code or tests.
 - Diagnostics point to exact authored source ranges whenever a relevant range exists.
 - Open-buffer changes cannot be overwritten by stale disk or parse results.
 - Commands are noninteractive and scriptable.
-- Metadata search uses one deterministic matching rule across CLI and LSP
-  consumers.
-- Local archive discovery takes precedence over Neovim's configured fallback.
+- Metadata search uses one deterministic matching rule across CLI and LSP consumers.
 - Archive migrations are explicit and reviewable.
 - The provider does not silently rewrite Zettel bodies or the user-owned Typst library.
 - A compact eager graph remains practical at the 50,000-Zettel stress case.
@@ -130,24 +110,16 @@ zk lsp
 Version one succeeds when:
 
 - a user can initialize an archive and create a correctly shaped Zettel;
-- Neovim can find and create Zettel in a configured personal archive from any buffer;
-- shell commands can target an archive explicitly without changing directory;
-- Neovim can search titles while completing, display, and follow `@ID`
-  references against unsaved state;
-- Neovim can restrict direct category completion to keys declared by the
-  archive library when its completion frontend uses the ZK filter;
-- `zk.nvim` detects incompatible ZK protocol versions and tests against its
-  minimum and latest supported `zk` releases;
+- shell commands can discover an archive or target it explicitly;
+- `zk lsp` can search metadata, complete and resolve references, and report backlinks against unsaved state;
+- category completion reads keys from the saved archive library;
 - backlinks and reference locations update as buffers change;
 - `zk check` reports malformed metadata, mismatched IDs, and dangling links;
 - removal is blocked when incoming references exist;
 - metadata and graph queries work from the shell;
-- shell users and workers can search metadata directly without loading the
-  complete graph;
-- a user can opt into archive-local Zettelkasten operating guidance without
-  affecting unrelated agent sessions;
+- metadata search returns every matching node in deterministic order;
 - an external process can consume a versioned JSON graph snapshot;
-- Tinymist does not report archive `@ID` references as missing Typst labels;
+- clients can reject incompatible ZK protocol versions;
 - copying the archive root preserves all canonical state.
 
 ## Deferred questions
@@ -157,5 +129,5 @@ Version one succeeds when:
 - Structural roles inferred from or declared alongside graph position
 - Publication and selected-subgraph compilation
 - Authoritative Typst metadata and archive-wide Typst values
-- Shared live access for consumers outside the editor process
+- Shared live access for consumers outside one LSP process
 - Performance changes justified by measurements on a real archive

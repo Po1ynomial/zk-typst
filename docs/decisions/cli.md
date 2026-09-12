@@ -72,7 +72,8 @@ The snapshot contains nodes, grouped links with occurrence ranges and resolution
 
 Run the language server.
 
-The Neovim adapter may launch it as `zk --archive PATH lsp` for an eagerly selected personal archive.
+An editor client may launch it as `zk --archive PATH lsp` for an explicitly
+selected archive.
 
 `export` remains reserved for later link resolution, selected-subgraph extraction, and dependency graph output.
 
@@ -83,7 +84,7 @@ The Neovim adapter may launch it as `zk --archive PATH lsp` for an eagerly selec
 It should not:
 
 - provide a TUI or picker;
-- launch or control Neovim;
+- launch or control an editor;
 - coordinate agent workers or live collaboration;
 - silently rewrite Zettel bodies;
 - manage user-owned files under `.agents/`;

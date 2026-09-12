@@ -10,7 +10,9 @@ The core is a reusable live archive provider. Each consumer instantiates its own
 - Full-text LSP updates carry document versions; generation checks discard parse results superseded by newer buffer or disk state.
 - Version one has no shared daemon, process discovery, or cross-process session synchronization.
 
-A separate consumer therefore does not see unsaved Neovim buffers unless it operates through the LSP/editor session. A shared service adapter may be added later without changing the archive model.
+A separate consumer therefore does not see unsaved editor buffers unless it
+operates through the LSP session. A shared service adapter may be added later
+without changing the archive model.
 
 Live bundled consumers use an internal Rust API. Language-neutral consumers use the versioned JSON snapshot emitted by `zk graph --format json`. Version one has no public live event stream. The provider schema version is independent of the on-disk archive format version.
 
@@ -18,9 +20,10 @@ Live bundled consumers use an internal Rust API. Language-neutral consumers use 
 
 The Rust provider is authoritative for version-one archive semantics. It parses Typst source without compiling or evaluating it. Rust owns root discovery, filename identity, metadata extraction and validation, open-buffer overlays, literal references and ranges, grouped links, graph revisions, diagnostics, queries, CLI behavior, and ZK language-server behavior.
 
-`lib/zettel.typ` owns presentation and intercepts ten-digit references so Typst and Tinymist do not treat them as unresolved document labels. Typst-side metadata objects and archive-wide business logic are non-authoritative and deferred to later compilation paths.
-
-Tinymist and `zk lsp` receive the same Neovim buffer changes but maintain separate state. Version one does not inject graph updates into Tinymist or consume Tinymist as a metadata backend.
+`lib/zettel.typ` owns presentation and intercepts ten-digit references so Typst
+tools do not treat them as unresolved document labels. Typst-side metadata
+objects and archive-wide business logic are non-authoritative and deferred to
+later compilation paths.
 
 ## Language
 
@@ -34,8 +37,6 @@ Reasons:
 - the CLI and `zk lsp` share the same parser and archive model;
 - generated content must match the installed Typst generation.
 
-The Neovim plugin remains Lua.
-
 ## Version coupling
 
 `typst-syntax` is not an independent stable protocol. `zk` pins a supported Typst minor version and tests newer versions before claiming compatibility.
@@ -43,8 +44,6 @@ The Neovim plugin remains Lua.
 The installed environment at design time:
 
 - Typst 0.15.1
-- Neovim 0.12.5
-- Tinymist 0.15.2, using Typst 0.15.0
 - typstyle 0.15.1
 
 ## Archive format version

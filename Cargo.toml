@@ -2,6 +2,19 @@
 name = "zk"
 version = "0.1.0"
 edition = "2024"
+include = [
+  "Cargo.toml",
+  "Cargo.lock",
+  "src/**",
+  "examples/**",
+  "tests/**",
+  "skills/**",
+  "docs/**",
+  "scripts/inspect-graph.sh",
+  "scripts/inspect-integrity.sh",
+  "scripts/inspect-lsp.sh",
+  "scripts/inspect-overlays.sh",
+]
 
 [dependencies]
 chrono = { version = "0.4.42", default-features = false, features = ["clock"] }
