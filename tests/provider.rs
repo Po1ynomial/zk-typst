@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fs;
 
+use tempfile::tempdir;
 use zk::archive::Archive;
 use zk::model::LinkResolution;
 use zk::provider::{Provider, UpdateOutcome};
@@ -12,9 +13,9 @@ fn zettel(id: &str, title: &str, body: &str) -> String {
 
 = {title} <{id}>
 
-#abstract[Overlay inspection note.]
+#abstract[Overlay lifecycle test.]
 
-#keywords("inspection")
+#keywords("test")
 
 #category.thoughts
 
@@ -33,9 +34,18 @@ fn title<'a>(provider: &'a Provider, id: &str) -> &'a str {
         .text
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let root = std::env::args().nth(1).expect("archive path argument");
-    let archive = Archive::discover(&root)?;
+#[test]
+fn overlay_lifecycle_preserves_coherent_revisions_and_snapshot() -> Result<(), Box<dyn Error>> {
+    let temporary = tempdir()?;
+    let archive = Archive::init(temporary.path())?;
+    fs::write(
+        archive.root().join("zettel/2603231410.typ"),
+        zettel("2603231410", "Disk source", "Link @2603231411."),
+    )?;
+    fs::write(
+        archive.root().join("zettel/2603231411.typ"),
+        zettel("2603231411", "Disk target", "No outgoing links."),
+    )?;
     let source_path = archive.root().join("zettel/2603231410.typ");
     let session_path = archive.root().join("zettel/2603231412.typ");
     let mut provider = Provider::load(&archive)?;
@@ -49,17 +59,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let pending_disk = provider
         .prepare_disk_update(&source_path)?
         .expect("closed file accepts disk preparation");
-    eprintln!(
-        "prepared disk update: generation {}",
-        pending_disk.generation()
-    );
 
     let opened = provider.open_buffer(
         &source_path,
         1,
         zettel("2603231410", "Overlay source", "Link @2603231412."),
     )?;
-    eprintln!("open disk-backed buffer: {opened:?}");
     assert!(matches!(opened, UpdateOutcome::Applied { revision: 2, .. }));
     assert_eq!(title(&provider, "2603231410"), "Overlay source");
     assert_eq!(
@@ -69,7 +74,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let current_generation = provider.node("2603231410").expect("source node").generation;
     let rejected_disk = provider.apply_prepared(pending_disk);
-    eprintln!("apply superseded disk update: {rejected_disk:?}");
     assert_eq!(
         rejected_disk,
         UpdateOutcome::StaleGeneration {
@@ -83,7 +87,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         1,
         zettel("2603231412", "Unsaved target", "Link @2603231411."),
     )?;
-    eprintln!("open unsaved buffer: {opened_unsaved:?}");
     assert!(matches!(
         opened_unsaved,
         UpdateOutcome::Applied { revision: 3, .. }
@@ -98,7 +101,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         1,
         &zettel("2603231410", "Stale change", "Link @2603231411."),
     )?;
-    eprintln!("repeat document version: {stale_version:?}");
     assert_eq!(stale_version, UpdateOutcome::StaleVersion { current: 1 });
     assert_eq!(provider.revision(), 3);
 
@@ -111,7 +113,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             "Twice @2603231411 and @2603231411.",
         ),
     )?;
-    eprintln!("change open buffer: {changed:?}");
     assert!(matches!(
         changed,
         UpdateOutcome::Applied { revision: 4, .. }
@@ -120,7 +121,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     assert_eq!(provider.links_from("2603231410")[0].spans.len(), 2);
 
     let saved = provider.save_buffer(&source_path)?;
-    eprintln!("save open buffer: {saved:?}");
     assert!(matches!(
         saved,
         UpdateOutcome::OverlayRetained { revision: 4, .. }
@@ -130,12 +130,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         zettel("2603231410", "Saved disk", "Link @2603231412."),
     )?;
     let ignored_disk = provider.refresh_disk(&source_path)?;
-    eprintln!("refresh disk under overlay: {ignored_disk:?}");
     assert_eq!(ignored_disk, UpdateOutcome::IgnoredOpenOverlay);
     assert_eq!(title(&provider, "2603231410"), "Changed overlay");
 
     let closed_source = provider.close_buffer(&source_path)?;
-    eprintln!("close saved buffer: {closed_source:?}");
     assert!(matches!(
         closed_source,
         UpdateOutcome::Applied { revision: 5, .. }
@@ -143,7 +141,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     assert_eq!(title(&provider, "2603231410"), "Saved disk");
 
     let closed_unsaved = provider.close_buffer(&session_path)?;
-    eprintln!("close unsaved buffer: {closed_unsaved:?}");
     assert!(matches!(
         closed_unsaved,
         UpdateOutcome::Applied { revision: 6, .. }
@@ -159,7 +156,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         zettel("2603231412", "Restored disk target", "Link @2603231411."),
     )?;
     let restored = provider.refresh_disk(&session_path)?;
-    eprintln!("restore closed disk node: {restored:?}");
     assert!(matches!(
         restored,
         UpdateOutcome::Applied { revision: 7, .. }
@@ -171,8 +167,27 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     assert!(provider.diagnostics().is_empty());
 
-    eprintln!("overlay lifecycle assertions passed through revision 7");
-    serde_json::to_writer_pretty(std::io::stdout().lock(), &provider.snapshot())?;
-    println!();
+    let snapshot = provider.snapshot();
+    assert_eq!(snapshot.revision, 7);
+    assert_eq!(
+        snapshot
+            .nodes
+            .iter()
+            .map(|node| node.id.as_str())
+            .collect::<Vec<_>>(),
+        ["2603231410", "2603231411", "2603231412"]
+    );
+    assert_eq!(snapshot.links.len(), 2);
+    assert_eq!(snapshot.links[0].source, "2603231410");
+    assert_eq!(snapshot.links[0].target, "2603231412");
+    assert_eq!(snapshot.links[1].source, "2603231412");
+    assert_eq!(snapshot.links[1].target, "2603231411");
+    assert!(
+        snapshot
+            .links
+            .iter()
+            .all(|link| link.resolution == LinkResolution::Resolved)
+    );
+    assert!(snapshot.diagnostics.is_empty());
     Ok(())
 }

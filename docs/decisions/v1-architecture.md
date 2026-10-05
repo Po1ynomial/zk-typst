@@ -18,7 +18,7 @@ The daily workflow requires current metadata, links, backlinks, and diagnostics 
 
 Experiments proved that Typst can construct rich node metadata and a centralized archive value, and Tinymist can show updated sampled values from unsaved buffers. Those paths still lack authored source ranges, share failures across aggregate compilation, and provide no direct live channel from Tinymist to `zk lsp`.
 
-A compact eager Rust graph measured about 96 MiB at 50,000 synthetic Zettel with one million reference occurrences. Graph construction took about 20 ms. Retaining syntax trees, not retaining links or ranges, caused the material memory cost.
+The compact eager Rust graph prototype measured about 96 MiB at 50,000 synthetic Zettel with one million reference occurrences. Graph construction took about 20 ms. These are experiment results, not measurements of the current executable. Retaining syntax trees, not retaining links or ranges, caused the material memory cost.
 
 Restricting metadata to direct top-level forms removes ambiguity between source syntax and runtime evaluation. The unrestricted body still uses ordinary Typst.
 

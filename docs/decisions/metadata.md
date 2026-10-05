@@ -51,7 +51,7 @@ A list of terms. The exact policy for keywords remains unsettled. A controlled v
 #category.thoughts
 ```
 
-A high-level label drawn from a curated set, for example physics, coding, or thoughts. If a keyword policy is later established, category can be derived via statistics. Until then it uses the explicit `#category` construct.
+A high-level label declared with the explicit `#category` construct. The initial presentation library supplies physics, coding, and thoughts. Completion reads the saved library's dictionary keys, but the provider validates only the direct field-access form, not dictionary membership. Category and keyword policy remain unsettled; category derivation is deferred.
 
 ## Provider representation
 

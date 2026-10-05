@@ -196,26 +196,40 @@ fn skill_installation_io_failure_does_not_fail_archive_creation() {
 fn emits_a_disk_backed_json_graph() {
     let temporary = tempdir().unwrap();
     let root = temporary.path().join("archive");
-    let init = zk()
-        .args(["init", root.to_str().unwrap()])
-        .output()
-        .unwrap();
-    assert!(init.status.success());
-
-    let source = r#"#import "../lib/zettel.typ": zettel, abstract, keywords, category
-#show: zettel
-
-= Source <2603231410>
-
-#abstract[Summary]
-
-#keywords("graph")
-
-#category.thoughts
-
-See @2603231411 twice: @2603231411.
-"#;
-    fs::write(root.join("zettel/2603231410.typ"), source).unwrap();
+    initialize(&root);
+    write_zettel_with_metadata(
+        &root,
+        "2603231410",
+        "Network _paths_",
+        "Connects to @2603231411.",
+        &["networks", "graph"],
+        "thoughts",
+        "Unicode before the range: café. Again @2603231411 and missing @9999999999.\n\
+         The raw value `@8888888888` is not a link.\n\
+         #let ignored = \"@7777777777\"\n\
+         // @6666666666 is also not a link.",
+    );
+    write_zettel(&root, "2603231411", "Target", "Back to @2603231410.");
+    write_zettel(
+        &root,
+        "2603231412",
+        "Malformed",
+        "Still links to @2603231411.",
+    );
+    let malformed_path = root.join("zettel/2603231412.typ");
+    let malformed = fs::read_to_string(&malformed_path)
+        .unwrap()
+        .replace("<2603231412>", "<2603231499>")
+        .replace("#keywords(\"test\")", "#keywords(\"valid\", computed)");
+    fs::write(malformed_path, malformed).unwrap();
+    write_zettel(&root, "2603231413", "Isolated", "No links.");
+    fs::write(
+        root.join("zettel/2603231414.typ"),
+        "#import \"../lib/zettel.typ\": zettel, abstract, keywords, category\n\
+         #show: zettel\n\n= Broken Typst <2603231414>\n\n#abstract[Unclosed block.",
+    )
+    .unwrap();
+    fs::write(root.join("zettel/readme.typ"), "not a canonical Zettel").unwrap();
 
     let output = zk()
         .current_dir(&root)
@@ -230,10 +244,67 @@ See @2603231411 twice: @2603231411.
     let graph: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
 
     assert_eq!(graph["schema_version"], 1);
-    assert_eq!(graph["nodes"][0]["title"]["text"], "Source");
-    assert_eq!(graph["links"][0]["target"], "2603231411");
-    assert_eq!(graph["links"][0]["resolution"], "missing");
-    assert_eq!(graph["links"][0]["spans"].as_array().unwrap().len(), 2);
+    assert_eq!(graph["revision"], 1);
+    assert_eq!(
+        graph["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|node| node["id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "2603231410",
+            "2603231411",
+            "2603231412",
+            "2603231413",
+            "2603231414"
+        ]
+    );
+    assert_eq!(graph["nodes"][0]["title"]["text"], "Network paths");
+    assert!(graph["nodes"][2]["keywords"].is_null());
+    let links = graph["links"].as_array().unwrap();
+    assert_eq!(links.len(), 4);
+    assert_eq!(links[0]["source"], "2603231410");
+    assert_eq!(links[0]["target"], "2603231411");
+    assert_eq!(links[0]["resolution"], "resolved");
+    assert_eq!(links[0]["spans"].as_array().unwrap().len(), 2);
+    assert_eq!(links[1]["source"], "2603231410");
+    assert_eq!(links[1]["target"], "9999999999");
+    assert_eq!(links[1]["resolution"], "missing");
+    assert_eq!(links[1]["spans"].as_array().unwrap().len(), 1);
+    assert_eq!(links[2]["source"], "2603231411");
+    assert_eq!(links[2]["target"], "2603231410");
+    assert_eq!(links[2]["resolution"], "resolved");
+    assert_eq!(links[3]["source"], "2603231412");
+    assert_eq!(links[3]["target"], "2603231411");
+    assert_eq!(links[3]["resolution"], "resolved");
+    for link in links {
+        let source = fs::read_to_string(
+            root.join(format!("zettel/{}.typ", link["source"].as_str().unwrap())),
+        )
+        .unwrap();
+        for span in link["spans"].as_array().unwrap() {
+            let start = span["start"].as_u64().unwrap() as usize;
+            let end = span["end"].as_u64().unwrap() as usize;
+            assert_eq!(
+                &source[start..end],
+                format!("@{}", link["target"].as_str().unwrap())
+            );
+        }
+    }
+    let diagnostics = graph["diagnostics"].as_array().unwrap();
+    for (path, code) in [
+        ("zettel/2603231412.typ", "metadata.id_mismatch"),
+        ("zettel/2603231412.typ", "metadata.keywords"),
+        ("zettel/2603231414.typ", "syntax.error"),
+        ("zettel/readme.typ", "archive.filename"),
+    ] {
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic["path"] == path && diagnostic["code"] == code)
+        );
+    }
 }
 
 #[test]
@@ -258,6 +329,13 @@ fn check_reports_integrity_errors() {
     initialize(&root);
     write_zettel(&root, "2603231410", "Dangling", "See @9999999999.");
     write_zettel(&root, "2603231411", "Isolated", "No links.");
+    write_zettel(&root, "2603231412", "Malformed", "No links.");
+    let malformed_path = root.join("zettel/2603231412.typ");
+    let malformed = fs::read_to_string(&malformed_path)
+        .unwrap()
+        .replace("<2603231412>", "<2603231499>")
+        .replace("#keywords(\"test\")", "#keywords(\"valid\", computed)");
+    fs::write(malformed_path, malformed).unwrap();
     fs::write(root.join("zettel/bad-name.typ"), "invalid filename").unwrap();
 
     let output = zk()
@@ -265,7 +343,7 @@ fn check_reports_integrity_errors() {
         .args(["check", "--format", "json"])
         .output()
         .unwrap();
-    assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(1));
     let diagnostics: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
 
     assert!(diagnostics.as_array().unwrap().iter().any(|diagnostic| {
@@ -284,6 +362,21 @@ fn check_reports_integrity_errors() {
             .unwrap()
             .iter()
             .any(|diagnostic| diagnostic["code"] == "archive.filename")
+    );
+    for code in ["metadata.id_mismatch", "metadata.keywords"] {
+        assert!(diagnostics.as_array().unwrap().iter().any(|diagnostic| {
+            diagnostic["path"] == "zettel/2603231412.typ" && diagnostic["code"] == code
+        }));
+    }
+
+    write_zettel(&root, "2603231410", "Repaired", "Now links to @2603231411.");
+    write_zettel(&root, "2603231412", "Repaired metadata", "No links.");
+    fs::remove_file(root.join("zettel/bad-name.typ")).unwrap();
+    let repaired = zk().current_dir(&root).arg("check").output().unwrap();
+    assert!(repaired.status.success());
+    assert_eq!(
+        String::from_utf8(repaired.stdout).unwrap(),
+        "0 error(s), 0 warning(s)\n"
     );
 }
 
@@ -445,19 +538,53 @@ fn removal_is_blocked_by_incoming_references() {
     let temporary = tempdir().unwrap();
     let root = temporary.path().join("archive");
     initialize(&root);
-    write_zettel(&root, "2603231410", "Source", "See @2603231411.");
+    write_zettel(
+        &root,
+        "2603231410",
+        "Source",
+        "See @2603231411 twice: @2603231411.",
+    );
     write_zettel(&root, "2603231411", "Target", "No outgoing links.");
+    write_zettel(
+        &root,
+        "2603231412",
+        "Malformed",
+        "Also links to @2603231411.",
+    );
+    let malformed_path = root.join("zettel/2603231412.typ");
+    let malformed = fs::read_to_string(&malformed_path)
+        .unwrap()
+        .replace("<2603231412>", "<2603231499>")
+        .replace("#keywords(\"test\")", "#keywords(\"valid\", computed)");
+    fs::write(malformed_path, malformed).unwrap();
 
     let blocked = zk()
         .current_dir(&root)
         .args(["remove", "2603231411"])
         .output()
         .unwrap();
-    assert!(!blocked.status.success());
+    assert_eq!(blocked.status.code(), Some(1));
+    assert!(blocked.stdout.is_empty());
     assert!(root.join("zettel/2603231411.typ").is_file());
     let stderr = String::from_utf8_lossy(&blocked.stderr);
     assert!(stderr.contains("incoming references exist"));
-    assert!(stderr.contains("zettel/2603231410.typ:"));
+    for id in ["2603231410", "2603231412"] {
+        let relative = format!("zettel/{id}.typ");
+        let source = fs::read_to_string(root.join(&relative)).unwrap();
+        for (start, reference) in source.match_indices("@2603231411") {
+            assert!(stderr.contains(&format!("{relative}:{start}..{}", start + reference.len())));
+        }
+    }
+    let backlinks = zk()
+        .current_dir(&root)
+        .args(["query", "backlinks", "2603231411"])
+        .output()
+        .unwrap();
+    assert!(backlinks.status.success());
+    let backlinks: serde_json::Value = serde_json::from_slice(&backlinks.stdout).unwrap();
+    assert_eq!(backlinks[0]["source"], "2603231410");
+    assert_eq!(backlinks[1]["source"], "2603231412");
+    assert_eq!(backlinks.as_array().unwrap().len(), 2);
 
     let removed_source = zk()
         .current_dir(&root)
@@ -466,6 +593,18 @@ fn removal_is_blocked_by_incoming_references() {
         .unwrap();
     assert!(removed_source.status.success());
     assert!(!root.join("zettel/2603231410.typ").exists());
+    assert_eq!(
+        String::from_utf8(removed_source.stdout).unwrap(),
+        "zettel/2603231410.typ\n"
+    );
+
+    let removed_malformed = zk()
+        .current_dir(&root)
+        .args(["remove", "2603231412"])
+        .output()
+        .unwrap();
+    assert!(removed_malformed.status.success());
+    assert!(!root.join("zettel/2603231412.typ").exists());
 
     let removed_target = zk()
         .current_dir(&root)

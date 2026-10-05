@@ -37,7 +37,7 @@ The design adapts the workflow described in the introduction to the Zettelkasten
 
 ## Design status
 
-Version-one archive, provider, CLI, and language-server behavior is implemented. See [Version-one architecture](v1-architecture.md), [Repository boundaries](repository-boundaries.md), and [System](../SYSTEM.md).
+The archive, provider, CLI, and language server are implemented as described in [System](../SYSTEM.md). [Supplementary Git initialization](git-lifecycle.md) is accepted but unimplemented. Format migration is deferred and has no command yet. See [Version-one architecture](v1-architecture.md) and [Repository boundaries](repository-boundaries.md) for the ownership decisions.
 
 - [Archive](archive.md)
 - [Zettel](zettel.md)

@@ -5,7 +5,7 @@
 One executable named `zk` provides all archive operations as subcommands:
 
 ```text
-zk init [--agent-skills]
+zk init [--agent-skills] [PATH]
 zk new
 zk remove <ID>
 zk check
@@ -22,7 +22,7 @@ Commands that require an existing archive accept `--archive PATH`. This explicit
 
 ### init
 
-Initialize the fixed archive layout.
+Initialize the fixed archive layout at `PATH`, defaulting to the current directory. The command does not currently invoke Git; [supplementary Git setup](git-lifecycle.md) is accepted but unimplemented.
 
 The optional boolean `--agent-skills` flag installs the complete bundled
 archive-local skill set under `.agents/skills/`. Installation is best-effort.
@@ -41,10 +41,13 @@ Remove a Zettel. Refuse while incoming references exist and print each source pa
 
 Verify archive-wide invariants. Text diagnostics are the default; `--format json` emits the provider diagnostic array. Errors fail the command, while warnings do not.
 
-- dangling and stale references;
-- duplicate IDs;
+- noncanonical filenames and entries under `zettel/`;
+- Typst syntax errors;
 - filename and heading-label mismatches;
-- malformed or missing metadata constructs;
+- missing, malformed, repeated, or misplaced metadata;
+- dangling literal reference occurrences.
+
+Filename identity in the flat directory prevents duplicate node IDs. A Zettel with no links is valid and produces no orphan diagnostic.
 
 ### query
 
@@ -104,7 +107,7 @@ Later AST transformations can be explicit commands that produce reviewable edits
 
 At startup, `zk` reads all Zettel and builds the relation graph and metadata table in memory. There are no centralized artifacts to keep in sync.
 
-For ordinary CLI commands, loading is synchronous. For `zk lsp`, initialization returns promptly while a background task builds the model. ZK features become available when that task completes.
+Provider loading is synchronous for graph-consuming CLI commands and for `zk lsp`. The server finishes loading before serving initialization or other requests. Background loading is not implemented.
 
 The parser extracts metadata and references, then discards closed-file syntax trees. Open buffers keep their current syntax trees.
 

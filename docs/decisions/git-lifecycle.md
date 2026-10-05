@@ -1,6 +1,10 @@
 # Git lifecycle
 
-Status: accepted
+Status: accepted, not implemented
+
+## Implementation status
+
+`zk init` currently creates the canonical source layout and optionally installs agent skills. It does not invoke Git. The decision below records the pending behavior, not a current capability.
 
 ## Decision
 

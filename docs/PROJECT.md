@@ -20,7 +20,7 @@ Agent workers may use optional archive-local operating skills and the same saved
 
 - One directory is one archive and one ID namespace.
 - `zk.toml` marks the root and declares `format = 1`.
-- `zk init` attempts supplementary Git setup when `git` is available, but Git failures do not block archive creation.
+- `zk init` creates the fixed source layout without initializing or modifying Git.
 - `zk init --agent-skills` may install bundled archive-local skills. Installed skills immediately become user-owned.
 - An explicit CLI archive path may select an archive outside the current directory.
 - Zettel live in one flat `zettel/` directory.
@@ -47,7 +47,7 @@ Agent workers may use optional archive-local operating skills and the same saved
 ### Commands
 
 ```text
-zk init [--agent-skills]
+zk init [--agent-skills] [PATH]
 zk --archive <PATH> ...
 zk new
 zk remove <ID>
@@ -121,6 +121,10 @@ Version one succeeds when:
 - an external process can consume a versioned JSON graph snapshot;
 - clients can reject incompatible ZK protocol versions;
 - copying the archive root preserves all canonical state.
+
+## Accepted but unimplemented
+
+- [Supplementary Git initialization](decisions/git-lifecycle.md) remains an accepted request. `zk init` does not yet invoke Git.
 
 ## Deferred questions
 

@@ -58,7 +58,7 @@ Provider generations prevent delayed disk work from replacing newer state. Each 
 
 The provider stores half-open UTF-8 byte ranges. The language server negotiates UTF-8 when offered and otherwise uses UTF-16.
 
-Open files use retained source text for conversion. Closed-file requests group ranges by path and read each file once. If disk contents no longer match provider state, the node refreshes before positions are returned.
+Open files use retained source text for conversion. Closed-file location conversions read saved text individually and scan it for line and character offsets. Read grouping and automatic refresh during position conversion are not implemented. Clients must send watched-file notifications to keep the graph aligned with saved text.
 
 ## Diagnostics
 

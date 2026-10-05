@@ -62,17 +62,13 @@ That version fixes:
 - the title and ID heading structure;
 - the metadata markup contracts.
 
-A newer `zk` may read older formats but must not silently rewrite them. Source migration uses an explicit command:
+The executable currently accepts format 1 only and rejects other versions. It has no migration command. Future format changes must use explicit, reviewable source migration rather than silently rewriting files.
 
-```text
-zk migrate
-```
-
-Generated content may rebuild automatically. Version one keeps no generated content, but future generated artifacts may update without migrating source.
+Version one keeps no generated graph or metadata artifacts.
 
 ## Library migration
 
-`lib/zettel.typ` is user-owned. Changing it requires an explicit migration or manual edit. `zk init` never silently replaces it.
+`lib/zettel.typ` is user-owned. Changes currently require manual edits; a future migration mechanism must be explicit. `zk init` never silently replaces it.
 
 ## Loading and retained state
 
@@ -80,4 +76,4 @@ Zettel files are parsed concurrently at startup. The provider eagerly builds the
 
 The in-memory representation interns Zettel IDs to compact integer indices and maintains incoming and outgoing adjacency. Its compact storage may use a flat occurrence arena, while the logical consumer model groups all occurrences for an ordered source-target pair into one link. It retains metadata and relation records for every Zettel, but discards source text and syntax trees for closed files. Open buffers retain incrementally updated `typst-syntax` sources.
 
-Version one does not use lazy graph indexing or a persistent cache. It stores source positions once as half-open UTF-8 byte ranges; adapters derive other encodings on demand. At the 50,000-file benchmark limit, a graph containing one million reference occurrences and byte ranges used about 96 MiB. See [Graph index performance](../research/graph-index-performance.md).
+Version one does not use lazy graph indexing or a persistent cache. It stores source positions once as half-open UTF-8 byte ranges; adapters derive other encodings on demand. The benchmark prototype, rather than the current executable, measured about 96 MiB at 50,000 files with one million reference occurrences and byte ranges. See [Graph index performance](../research/graph-index-performance.md).

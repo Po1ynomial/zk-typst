@@ -70,27 +70,13 @@ against the minimum supported `zk` release and the latest release. A scheduled
 test may also use `zk` main to detect upcoming incompatibilities, but it does
 not gate ordinary `zk` development.
 
-## Project docs and SDD
+## Project documentation
 
-Each repository owns a complete local set of current project artifacts.
-Plugin-specific knowledge from the current `PROJECT.md`, `DESIGN.md`,
-`SYSTEM.md`, and decisions is factored into focused `zk.nvim` documents during
-extraction. The plugin does not receive a wholesale copy of the mixed project
-documentation.
+Each repository owns its current `PROJECT.md`, `DESIGN.md`, `SYSTEM.md`, decisions, and research. Plugin-specific knowledge from the former mixed documents was factored into focused `zk.nvim` documents during extraction. The plugin did not receive a wholesale copy of the mixed project documentation.
 
-The current `docs/.sdd/state.jsonl` remains in `zk` unchanged. It preserves the
-history of work completed before the split, including earlier Neovim slices,
-but accepts only `zk` work after extraction.
+Git preserves implementation and extraction history. Repository-local workflow bookkeeping has since been removed from `zk`; it is not part of the maintained project documentation.
 
-No SDD state is copied, filtered, synthesized, or initialized in `zk.nvim`
-during extraction. The first SDD session whose working directory is
-`zk.nvim` onboards from its local project artifacts and starts a fresh state.
-Until then, the current working directory and SDD state remain focused on
-`zk`.
-
-Future cross-repository work is coordinated through protocol decisions,
-engine commits, releases, and minimum-version declarations. The repositories
-do not share slice IDs or an SDD database.
+Cross-repository work is coordinated through protocol decisions, engine commits, releases, and minimum-version declarations. The repositories do not share a work-state database.
 
 ## History and extraction
 
@@ -118,8 +104,7 @@ and client validation had passed together. Its filtered plugin commit is
 plugin checkout, factored current plugin documentation, and made integration
 tests consume an explicit `ZK_BIN`.
 
-The `zk` repository keeps its complete past history and SDD log, then removes
-plugin-owned files in an ordinary split commit.
+The `zk` repository kept its complete Git history and removed plugin-owned files in the ordinary split commit `7bf9fc0`.
 
 ## Rationale
 

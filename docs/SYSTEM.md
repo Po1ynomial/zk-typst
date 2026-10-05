@@ -15,7 +15,7 @@ lib/
   zettel.typ
 ```
 
-The default path is the current directory. The generated manifest declares `format = 1`. The bundled Typst library renders the fixed metadata forms and intercepts ten-digit references.
+The default path is the current directory. The generated manifest declares `format = 1`. The bundled Typst library renders the fixed metadata forms and intercepts ten-digit references. Initialization does not invoke Git, stage files, or create a commit.
 
 `zk init --agent-skills [PATH]` also installs the complete bundled skill set under `.agents/skills/`. The current set contains `.agents/skills/zettelkasten/SKILL.md`, which documents the writing method, source contract, query workflow, whole-file lifecycle commands, and archive checks. Ordinary initialization does not create `.agents/`.
 
@@ -78,7 +78,7 @@ Every scheduled source state receives a generation. Prepared disk updates apply 
 
 The server advertises full-text synchronization. Open, change, save, and close notifications map to the provider overlay lifecycle. When the client supports dynamic registration, the server registers `**/zettel/*.typ` for create, change, and delete events. Watched-file notifications refresh closed Zettel and cannot replace open overlays.
 
-The server prefers UTF-8 positions when offered and otherwise uses UTF-16. It converts retained byte ranges with open-buffer text or one read of a closed file.
+The server prefers UTF-8 positions when offered and otherwise uses UTF-16. It converts retained byte ranges with open-buffer text or a saved-text read for each closed-file location.
 
 Initialization advertises ZK protocol version 1 under `capabilities.experimental.zk` with these boolean features:
 
@@ -110,9 +110,9 @@ The server pushes diagnostics for open Zettel after accepted source updates and 
 - `src/lsp.rs` implements protocol capabilities, synchronization, diagnostics, navigation, search, and archive commands.
 - `src/templates.rs` contains the canonical templates and bundled skill registry.
 - `skills/zettelkasten/SKILL.md` is the inspectable bundled skill source.
-- `tests/cli.rs` covers authoring, graph output, checks, queries, skills, search, and guarded removal.
-- `examples/inspect_overlays.rs` drives the live-provider lifecycle.
-- `examples/lsp_probe.rs` inspects the language server over framed JSON-RPC.
+- `tests/cli.rs` covers authoring, graph output and authored byte ranges, integrity checks, queries, skills, search, and removal blocked by all incoming occurrences, including those in malformed notes.
+- `tests/provider.rs` exercises the complete overlay lifecycle through coherent revisions and a final graph snapshot. Unit tests in `src/provider.rs` cover individual transitions and stale-update rejection.
+- `tests/lsp.rs` tests the language server over framed standard-input and standard-output JSON-RPC with isolated temporary archives and both UTF-8 and UTF-16 positions.
 
 ## Inspection
 
@@ -131,23 +131,27 @@ Inspect generated skills and metadata search:
 ```sh
 archive="$(mktemp -d)"
 cargo run -- init --agent-skills "$archive"
+cargo run -- --archive "$archive" new
 cargo run -- --archive "$archive" query search "untitled"
 ```
 
-Inspect each engine layer:
+Run focused integration suites:
 
 ```sh
-scripts/inspect-graph.sh
-scripts/inspect-integrity.sh
-scripts/inspect-overlays.sh
-scripts/inspect-lsp.sh
+cargo test --test cli
+cargo test --test provider
+cargo test --test lsp
 ```
 
-The graph script checks extraction, recovery, links, grouped ranges, and diagnostics. The integrity script demonstrates checks, queries, blocked removal, and successful removal. The overlay script exercises incremental changes, stale update rejection, save precedence, disk deletion, and restoration. The LSP script probes UTF-8 and UTF-16 sessions over the real transport, including protocol capabilities, completion, navigation, diagnostics, queries, watched files, and shutdown.
+All suites run under `cargo test` without shell scripts or `jq`. The LSP suite covers protocol capabilities, ID and title completion, category completion from the saved library, navigation, diagnostics, live metadata search and queries, unsaved state, stale versions, watched files, registration, and shutdown. Requests have receive timeouts, shutdown has an exit timeout, and the client reaps the server on failures.
 
 ## Current limitations
 
-The server loads its initial graph synchronously. Clients without dynamic watched-file registration must arrange file notifications. Diagnostics are pushed for open Zettel; archive-wide closed-file inspection remains available through `zk check`.
+The server loads its initial graph synchronously before serving requests. Clients without dynamic watched-file registration must arrange file notifications. Diagnostics are pushed for open Zettel; archive-wide closed-file inspection remains available through `zk check`.
+
+Closed-file LSP location conversions read saved text for each location. They do not group file reads or refresh graph state automatically. A saved-file change without a watched-file notification can leave graph ranges stale relative to the text used for conversion.
+
+The executable accepts archive format 1 only and has no migration command. Supplementary Git initialization is accepted but unimplemented; see [Git lifecycle](decisions/git-lifecycle.md).
 
 Queries emit JSON only. CLI locations use UTF-8 byte ranges. Removal does not edit incoming references. Metadata search has no result cap, so broad queries can produce large arrays.
 

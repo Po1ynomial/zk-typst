@@ -81,7 +81,7 @@ Forward navigation needs no graph lookup:
 @2603231410 -> zettel/2603231410.typ
 ```
 
-The editor conceals the `@ID` and displays the target title. The raw ID remains in the buffer for saving, parsing, LSP processing, and version control.
+Editor clients may conceal `@ID` and display the target title using metadata supplied by `zk lsp`. Presentation belongs to the client. The raw ID remains in the buffer for saving, parsing, LSP processing, and version control.
 
 ## Removal
 

@@ -54,15 +54,7 @@ behavior without making clients infer support from an executable version.
 Local development uses sibling checkouts and explicit executable paths. A
 protocol addition lands compatibly in `zk` before `zk.nvim` requires it.
 
-Each repository has its own `PROJECT.md`, `DESIGN.md`, `SYSTEM.md`, decisions,
-and research. Plugin knowledge from the former mixed documents is factored
-into focused `zk.nvim` artifacts. The plugin repository does not contain a
-copy of the current SDD log.
-
-The existing SDD state stays with `zk` as historical provenance and now tracks
-only engine work. `zk.nvim` starts a fresh SDD state when a future session
-first onboards from that repository. There is no shared cross-repository slice
-database.
+Each repository has its own `PROJECT.md`, `DESIGN.md`, `SYSTEM.md`, decisions, and research. Plugin knowledge from the former mixed documents is factored into focused `zk.nvim` artifacts. Git records implementation history; the repositories do not share a work-state database.
 
 ## Archive root and layout
 
@@ -123,20 +115,9 @@ permissions, and live editor collaboration remain external to `zk`.
 
 ## Git lifecycle
 
-After writing the fixed layout, `zk init` attempts to initialize Git when the
-`git` executable is available in `PATH`. It stages and commits only `zk.toml`
-and `lib/zettel.typ`, using
-`chore: initialize zettelkasten archive` as the commit message. A path-limited
-commit preserves unrelated staged changes in an existing repository.
+`zk init` currently creates source files and directories only. It does not invoke Git, stage files, or create a commit. Users manage archive version control themselves.
 
-Git setup is best-effort. A missing executable is silent. A failed Git command
-produces a warning but does not fail archive initialization or roll back files
-and Git state.
-
-The command does not inspect parent repositories, choose a branch name, set
-identity or signing options, bypass hooks, create ignore files, or preserve the
-empty `zettel/` directory in Git. These remain under user and Git
-configuration control.
+Best-effort Git initialization and a path-limited initial commit are accepted but unimplemented. The planned behavior is preserved in [Git lifecycle](decisions/git-lifecycle.md).
 
 ## Archive selection
 
@@ -201,8 +182,9 @@ ZettelNode
   abstract
   keywords
   category
-  diagnostics
 ```
+
+Diagnostics are retained separately by the provider and appear in the snapshot's top-level `diagnostics` array, keyed by archive-relative path.
 
 Title and abstract use:
 
@@ -224,8 +206,7 @@ The text projection:
 - preserves equations and code expressions as source;
 - omits comments.
 
-Keywords and category are strings. Missing or malformed fields remain absent
-and produce diagnostics. Category completion reads keys from the saved direct
+Keywords are an optional list of strings; category is an optional string. Missing or malformed fields remain absent and produce diagnostics. Category completion reads keys from the saved direct
 top-level `#let category = (...)` dictionary in `lib/zettel.typ` without
 making that presentation library authoritative for Zettel metadata.
 
@@ -266,7 +247,7 @@ At startup the provider:
 5. builds nodes, grouped links, and adjacency indexes;
 6. discards source text and syntax trees for closed files.
 
-The LSP may return initialization before background loading finishes. ZK features become available after the initial graph revision is ready.
+Both CLI and LSP startup load the initial graph synchronously. `zk lsp` starts serving requests only after `Provider::load` succeeds; there is no background-loading readiness phase.
 
 ### Retained state
 
@@ -301,9 +282,9 @@ Every source state has a generation number. Parse results apply only when their 
 
 The provider stores byte ranges only.
 
-For open files, the LSP adapter converts ranges using the retained source. For closed files, it groups requested ranges by path, reads each file once, and builds a temporary line index. If disk contents no longer match the graph generation, the provider refreshes that node before returning positions.
+For open files, the LSP adapter converts ranges using the retained source. For closed files, it reads the saved text for each location conversion and scans that text to derive positions. It does not group reads or refresh graph state during conversion.
 
-This keeps the model independent of LSP position encoding and avoids retaining duplicate coordinates.
+The model remains independent of LSP position encoding and stores no duplicate coordinates. Closed-file graph state depends on watched-file notifications; positions may be stale if saved text changes without a corresponding notification.
 
 ## Rust and Typst boundary
 
@@ -411,20 +392,19 @@ Tinymist integration is optional and never becomes canonical archive state.
 
 `zk check` and `zk lsp` share validation logic. Checks include:
 
-- malformed canonical filenames;
+- noncanonical filenames and entries under `zettel/`;
 - filename and heading-label mismatch;
 - missing, repeated, malformed, or misplaced metadata;
 - invalid metadata body structure;
-- dangling references;
-- incoming references that block removal.
+- dangling references.
 
-Diagnostics use the current provider revision and exact byte ranges where available.
+Incoming references also block removal, but their reported locations are not provider diagnostics. Diagnostics use the current provider revision and exact byte ranges where available.
 
 ## Migration
 
-Archive format changes require an explicit `zk migrate`. A newer executable may read older formats but must not silently rewrite source.
+The current executable accepts archive format 1 only. It has no `zk migrate` command and never silently rewrites source for a different format. A future format change requires an explicit, reviewable migration mechanism.
 
-`lib/zettel.typ` is user-owned. `zk init` supplies its initial version but never silently replaces it. Library changes require manual edits or explicit migration.
+`lib/zettel.typ` is user-owned. `zk init` supplies its initial version but never silently replaces it. Library changes currently require manual edits.
 
 ## Deferred design
 

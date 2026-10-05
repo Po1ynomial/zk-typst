@@ -6,14 +6,9 @@ include = [
   "Cargo.toml",
   "Cargo.lock",
   "src/**",
-  "examples/**",
   "tests/**",
   "skills/**",
   "docs/**",
-  "scripts/inspect-graph.sh",
-  "scripts/inspect-integrity.sh",
-  "scripts/inspect-lsp.sh",
-  "scripts/inspect-overlays.sh",
 ]
 
 [dependencies]

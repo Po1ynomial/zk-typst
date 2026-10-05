@@ -247,7 +247,7 @@ The metadata object can preserve rich Typst content rather than reducing title a
 
 ### Design relevance
 
-The provider pipeline can be Typst evaluation first for node metadata, followed by source-level link extraction and range handling where Typst query results are insufficient. This reverses the earlier assumption that the Rust syntax-tree parser owns metadata semantics.
+This experiment established a possible evaluation-first pipeline for valid documents, with source-level extraction supplying missing link ranges. That alternative was not adopted for version one. Rust owns metadata semantics and malformed-buffer recovery; evaluated metadata remains relevant to later compilation paths.
 
 Confidence: high for valid documents on the tested versions.
 

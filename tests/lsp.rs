@@ -1,13 +1,15 @@
 use std::error::Error;
 use std::fs;
 use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
+use tempfile::tempdir;
 use tower_lsp::lsp_types::Url;
+use zk::archive::Archive;
 
 #[derive(Clone, Copy)]
 enum Encoding {
@@ -24,16 +26,16 @@ impl Encoding {
     }
 }
 
-struct Probe {
+struct LspClient {
     child: Child,
-    input: BufWriter<ChildStdin>,
+    input: Option<BufWriter<ChildStdin>>,
     messages: Receiver<Result<Value, String>>,
     notifications: Vec<Value>,
     registrations: Vec<Value>,
     next_id: u64,
 }
 
-impl Probe {
+impl LspClient {
     fn spawn(binary: &Path, archive: &Path) -> Result<Self, Box<dyn Error>> {
         let mut child = Command::new(binary)
             .arg("--archive")
@@ -66,7 +68,7 @@ impl Probe {
         });
         Ok(Self {
             child,
-            input,
+            input: Some(input),
             messages,
             notifications: Vec::new(),
             registrations: Vec::new(),
@@ -160,19 +162,28 @@ impl Probe {
     fn shutdown(mut self) -> Result<(), Box<dyn Error>> {
         self.request("shutdown", Value::Null)?;
         self.notify("exit", Value::Null)?;
-        drop(self.input);
-        let status = self.child.wait()?;
-        if !status.success() {
-            return Err(format!("language server exited with {status}").into());
+        drop(self.input.take());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(status) = self.child.try_wait()? {
+                if !status.success() {
+                    return Err(format!("language server exited with {status}").into());
+                }
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                return Err("language server did not exit after shutdown".into());
+            }
+            std::thread::sleep(Duration::from_millis(10));
         }
-        Ok(())
     }
 
     fn send(&mut self, message: Value) -> Result<(), Box<dyn Error>> {
         let body = serde_json::to_vec(&message)?;
-        write!(self.input, "Content-Length: {}\r\n\r\n", body.len())?;
-        self.input.write_all(&body)?;
-        self.input.flush()?;
+        let input = self.input.as_mut().expect("server stdin is open");
+        write!(input, "Content-Length: {}\r\n\r\n", body.len())?;
+        input.write_all(&body)?;
+        input.flush()?;
         Ok(())
     }
 
@@ -181,6 +192,14 @@ impl Probe {
             Ok(message) => Ok(message),
             Err(error) => Err(error.into()),
         }
+    }
+}
+
+impl Drop for LspClient {
+    fn drop(&mut self) {
+        // Also reap the server when an assertion panics or a request times out.
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
@@ -215,7 +234,7 @@ fn zettel(title: &str, id: &str, keywords: &str, body: &str) -> String {
 
 = {title} <{id}>
 
-#abstract[Live LSP inspection.]
+#abstract[Live protocol test.]
 
 #keywords({keywords})
 
@@ -246,16 +265,32 @@ fn write_target(path: &Path, title: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let binary = PathBuf::from(std::env::args().nth(1).expect("zk binary argument"));
-    let archive = fs::canonicalize(PathBuf::from(
-        std::env::args().nth(2).expect("archive argument"),
-    ))?;
-    let encoding = match std::env::args().nth(3).as_deref() {
-        Some("utf-8") => Encoding::Utf8,
-        Some("utf-16") => Encoding::Utf16,
-        other => return Err(format!("unsupported probe encoding: {other:?}").into()),
-    };
+#[test]
+fn protocol_over_stdio_with_utf8_positions() -> Result<(), Box<dyn Error>> {
+    protocol_session(Encoding::Utf8)
+}
+
+#[test]
+fn protocol_over_stdio_with_utf16_positions() -> Result<(), Box<dyn Error>> {
+    protocol_session(Encoding::Utf16)
+}
+
+fn protocol_session(encoding: Encoding) -> Result<(), Box<dyn Error>> {
+    let temporary = tempdir()?;
+    let archive = temporary.path().join("archive");
+    Archive::init(&archive)?;
+    let archive = fs::canonicalize(archive)?;
+    fs::write(
+        archive.join("zettel/2603231410.typ"),
+        zettel(
+            "Disk source",
+            "2603231410",
+            "\"source\"",
+            "Link @2603231411.",
+        ),
+    )?;
+    write_target(&archive.join("zettel/2603231411.typ"), "Disk target")?;
+    let binary = Path::new(env!("CARGO_BIN_EXE_zk"));
     let source_path = archive.join("zettel/2603231410.typ");
     let target_path = archive.join("zettel/2603231411.typ");
     let session_path = archive.join("zettel/2603231412.typ");
@@ -269,7 +304,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         fs::read_to_string(&library_path)?.replace("coding: [Coding]", "history: [History]");
     fs::write(&library_path, library)?;
 
-    let mut client = Probe::spawn(&binary, &archive)?;
+    let mut client = LspClient::spawn(binary, &archive)?;
     let initialized = client.request(
         "initialize",
         json!({
@@ -293,12 +328,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         1
     );
     assert_eq!(
-        initialized["capabilities"]["experimental"]["zk"]["features"]["archiveQueries"],
-        true
-    );
-    assert_eq!(
-        initialized["capabilities"]["experimental"]["zk"]["features"]["referenceTitleDecorations"],
-        true
+        initialized["capabilities"]["experimental"]["zk"]["features"],
+        json!({
+            "archiveQueries": true,
+            "categoryCompletion": true,
+            "referenceCompletion": true,
+            "referenceTitleDecorations": true,
+        })
     );
     client.notify("initialized", json!({}))?;
 
@@ -603,26 +639,5 @@ fn main() -> Result<(), Box<dyn Error>> {
     }));
 
     client.shutdown()?;
-    serde_json::to_writer_pretty(
-        std::io::stdout().lock(),
-        &json!({
-            "encoding": encoding.name(),
-            "completion": true,
-            "referenceCompletion": true,
-            "categoryCompletion": true,
-            "hover": true,
-            "definition": true,
-            "references": true,
-            "backlinks": true,
-            "archiveSearch": true,
-            "diagnostics": true,
-            "unsavedState": true,
-            "staleVersionRejected": true,
-            "watchedFileRefresh": true,
-            "watcherRegistration": true,
-            "shutdown": true,
-        }),
-    )?;
-    println!();
     Ok(())
 }
