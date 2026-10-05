@@ -114,17 +114,40 @@ The server pushes diagnostics for open Zettel after accepted source updates and 
 - `tests/provider.rs` exercises the complete overlay lifecycle through coherent revisions and a final graph snapshot. Unit tests in `src/provider.rs` cover individual transitions and stale-update rejection.
 - `tests/lsp.rs` tests the language server over framed standard-input and standard-output JSON-RPC with isolated temporary archives and both UTF-8 and UTF-16 positions.
 
+## Development tools
+
+Repository guidance is in [AGENTS.md](../AGENTS.md). Development checks use Rust 1.94.0 with Rustfmt and Clippy, `just` 1.58.0, and `rumdl` 0.2.78. `rust-toolchain.toml` pins the development toolchain; this is not a declaration of the executable's minimum supported Rust version.
+
+With Rustup installed, set up the pinned tools from the repository root:
+
+```sh
+rustup show active-toolchain
+cargo install --locked just --version 1.58.0
+cargo install --locked rumdl --version 0.2.78
+```
+
+Rustup installs the configured toolchain and components when first used in the repository. The recipes use a POSIX shell and support development on Linux and macOS.
+
 ## Inspection
 
-Run automated checks:
+Run the same non-mutating checks used by CI:
+
+```sh
+just check
+```
+
+Individual recipes are `just fmt-check`, `just lint`, `just test`, and `just docs`. `just` without arguments also runs `check`. Each check captures stdout and stderr once, prints a short success line, or prints the complete captured output on failure and returns a failing status. Temporary command logs are removed after the command finishes.
+
+The underlying commands remain available for detailed output:
 
 ```sh
 cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test
-rumdl check docs skills
-cargo package --list --allow-dirty
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked
+rumdl check AGENTS.md docs skills
 ```
+
+Checks do not rewrite Rust or Markdown source. Cargo commands use `--locked` where supported so verification does not update dependency resolution. Run `cargo fmt` explicitly when formatting changes are intended. Package inspection remains available separately through `cargo package --list --allow-dirty`.
 
 Inspect generated skills and metadata search:
 
@@ -138,12 +161,20 @@ cargo run -- --archive "$archive" query search "untitled"
 Run focused integration suites:
 
 ```sh
-cargo test --test cli
-cargo test --test provider
-cargo test --test lsp
+just test --test cli
+just test --test provider
+just test --test lsp
 ```
 
 All suites run under `cargo test` without shell scripts or `jq`. The LSP suite covers protocol capabilities, ID and title completion, category completion from the saved library, navigation, diagnostics, live metadata search and queries, unsaved state, stale versions, watched files, registration, and shutdown. Requests have receive timeouts, shutdown has an exit timeout, and the client reaps the server on failures.
+
+## Continuous integration
+
+[CI](../.github/workflows/ci.yml) runs `just check` on Ubuntu 24.04 for pull requests, pushes to `main`, and manual dispatch. It uses the repository's Rust toolchain file and the same pinned `just` and `rumdl` versions documented above.
+
+The job has read-only repository permissions, does not persist checkout credentials, caches Rust dependencies and installed Cargo tools, cancels superseded runs for the same event and ref, and has a 20-minute timeout. Actions are pinned to full commit SHAs with their release tags noted alongside them. Cache writes are restricted to `main`.
+
+Tool updates should keep the workflow pins, toolchain file, and setup instructions synchronized. CI does not publish releases, change branch protection, or run a macOS or Windows matrix.
 
 ## Current limitations
 
