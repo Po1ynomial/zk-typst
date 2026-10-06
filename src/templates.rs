@@ -1,20 +1,4 @@
-pub const MANIFEST: &str = r#"format = 2
-
-[new]
-template = "templates/zettel.typ.tpl"
-
-[metadata.abstract]
-form = "content-call"
-name = "abstract"
-
-[metadata.keywords]
-form = "string-arguments-call"
-name = "keywords"
-
-[metadata.category]
-form = "field-access"
-name = "category"
-"#;
+pub const MANIFEST: &str = "format = 3\n";
 
 pub struct AgentSkill {
     pub name: &'static str,
@@ -43,36 +27,13 @@ pub const LIBRARY: &str = r#"#let is-zettel-id(target) = {
   body
 }
 
-#let abstract(body) = block(
-  inset: (left: 1em),
-  stroke: (left: 0.5pt),
-)[
-  #emph[Abstract.] #body
-]
-
-#let keywords(..items) = {
-  let values = items.pos()
-  block[
-    #emph[Keywords.] #values.join[, ]
-  ]
-}
-
-#let category = (
-  thoughts: [Thoughts],
-  physics: [Physics],
-  coding: [Coding],
-)
 "#;
 
-pub const ZETTEL: &str = r#"#import "../lib/zettel.typ": zettel, abstract, keywords, category
+pub const ZETTEL: &str = r#"#import "../lib/zettel.typ": zettel
 #show: zettel
 
-= Untitled <{{id}}>
-
-#abstract[]
-
-#keywords()
-
-#category.thoughts
-
+= Untitled <new>
 "#;
+
+/// An optional user-owned starting point, never a runtime default.
+pub const DESCRIPTIVE_TEMPLATE: &str = include_str!("../examples/templates/descriptive.typ");

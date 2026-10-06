@@ -17,7 +17,7 @@ fn json_data(bytes: &[u8]) -> serde_json::Value {
         .clone()
 }
 
-fn initialize(root: &std::path::Path) {
+fn initialize_descriptive(root: &std::path::Path) {
     let output = zk()
         .args(["init", root.to_str().unwrap()])
         .output()
@@ -27,6 +27,11 @@ fn initialize(root: &std::path::Path) {
         "init failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+    fs::write(
+        root.join(zk::config::DEFAULT_TEMPLATE_PATH),
+        zk::templates::DESCRIPTIVE_TEMPLATE,
+    )
+    .unwrap();
 }
 
 fn write_zettel(root: &std::path::Path, id: &str, title: &str, body: &str) {
@@ -112,9 +117,19 @@ fn initializes_an_archive_and_creates_a_zettel_from_a_nested_directory() {
 
     let source = fs::read_to_string(&path).unwrap();
     assert!(source.contains(&format!("= Untitled <{id}>")));
-    assert!(source.contains("#abstract[]"));
-    assert!(source.contains("#keywords()"));
-    assert!(source.contains("#category.thoughts"));
+    assert!(!source.contains("#abstract"));
+    assert!(!source.contains("@zk-field"));
+    let node = zk()
+        .current_dir(&root)
+        .args(["query", "node", &id])
+        .output()
+        .unwrap();
+    assert!(node.status.success());
+    assert_eq!(json_data(&node.stdout)["metadata"], serde_json::json!({}));
+    assert_eq!(
+        fs::read_to_string(root.join("zk.toml")).unwrap(),
+        "format = 3\n"
+    );
 }
 
 #[test]
@@ -123,7 +138,7 @@ fn optionally_installs_archive_local_agent_skills() {
     let plain = temporary.path().join("plain");
     let enabled = temporary.path().join("enabled");
 
-    initialize(&plain);
+    initialize_descriptive(&plain);
     assert!(!plain.join(".agents").exists());
 
     let output = zk()
@@ -205,7 +220,7 @@ fn skill_installation_io_failure_does_not_fail_archive_creation() {
 fn schema_two_fixtures_match_cli_results() {
     let temporary = tempdir().unwrap();
     let root = temporary.path();
-    initialize(root);
+    initialize_descriptive(root);
     let empty = zk()
         .current_dir(root)
         .args(["graph", "--format", "json"])
@@ -219,6 +234,11 @@ fn schema_two_fixtures_match_cli_results() {
     fs::write(
         root.join("zk.toml"),
         include_str!("fixtures/schema2/zk.toml"),
+    )
+    .unwrap();
+    fs::write(
+        root.join(zk::config::DEFAULT_TEMPLATE_PATH),
+        include_str!("fixtures/schema2/template.typ"),
     )
     .unwrap();
     fs::write(
@@ -274,17 +294,15 @@ fn schema_two_fixtures_match_cli_results() {
 fn explicit_metadata_is_user_owned_and_removed_fields_are_not_restored() {
     let temporary = tempdir().unwrap();
     let root = temporary.path();
-    initialize(root);
+    initialize_descriptive(root);
     let manifest = fs::read_to_string(root.join("zk.toml")).unwrap();
-    for field in ["abstract", "keywords", "category"] {
-        assert!(manifest.contains(&format!("[metadata.{field}]")));
-    }
+    assert_eq!(manifest, "format = 3\n");
     let source = "= Source <2603231410>\n#keywords(computed)\n#tag(\"MixedCase\", \"duplicate\", \"duplicate\")\n#summary[Résumé]\n#group.coding\nBody-only needle.\n";
     fs::write(root.join("zettel/2603231410.typ"), source).unwrap();
-    let custom = "format = 2\n[metadata.tags]\nform = 'string-arguments-call'\nname = 'tag'\n\
-                  [metadata.synopsis]\nform = 'content-call'\nname = 'summary'\n\
-                  [metadata.topic]\nform = 'field-access'\nname = 'group'\n";
-    fs::write(root.join("zk.toml"), custom).unwrap();
+    let custom = "= Title <new>\n// @zk-field \"tags\" kind=string-list\n#tag()\n\
+              // @zk-field \"synopsis\" kind=markup\n#summary[]\n\
+              // @zk-field \"topic\" kind=string\n#group.coding\n";
+    fs::write(root.join(zk::config::DEFAULT_TEMPLATE_PATH), custom).unwrap();
     let node = zk()
         .current_dir(root)
         .args(["query", "node", "2603231410"])
@@ -313,8 +331,8 @@ fn explicit_metadata_is_user_owned_and_removed_fields_are_not_restored() {
             .unwrap();
         assert_eq!(json_data(&output.stdout), serde_json::json!([]));
     }
-    for empty in ["format = 2\n", "format = 2\n[metadata]\n"] {
-        fs::write(root.join("zk.toml"), empty).unwrap();
+    for empty in ["= Title <new>\n", "// ordinary comment\n= Title <new>\n"] {
+        fs::write(root.join(zk::config::DEFAULT_TEMPLATE_PATH), empty).unwrap();
         let node = zk()
             .current_dir(root)
             .args(["query", "node", "2603231410"])
@@ -340,8 +358,8 @@ fn explicit_metadata_is_user_owned_and_removed_fields_are_not_restored() {
         source
     );
     assert_eq!(
-        fs::read_to_string(root.join("templates/zettel.typ.tpl")).unwrap(),
-        zk::templates::ZETTEL
+        fs::read_to_string(root.join(zk::config::DEFAULT_TEMPLATE_PATH)).unwrap(),
+        "// ordinary comment\n= Title <new>\n"
     );
 }
 
@@ -349,7 +367,7 @@ fn explicit_metadata_is_user_owned_and_removed_fields_are_not_restored() {
 fn cli_statuses_and_global_archive_option_match_the_contract() {
     let temporary = tempdir().unwrap();
     let root = temporary.path();
-    initialize(root);
+    initialize_descriptive(root);
     fs::write(
         root.join("zettel/2603231410.typ"),
         "= Source <2603231410>\n",
@@ -402,7 +420,7 @@ fn cli_statuses_and_global_archive_option_match_the_contract() {
 fn emits_a_disk_backed_json_graph() {
     let temporary = tempdir().unwrap();
     let root = temporary.path().join("archive");
-    initialize(&root);
+    initialize_descriptive(&root);
     write_zettel_with_metadata(
         &root,
         "2603231410",
@@ -517,7 +535,7 @@ fn emits_a_disk_backed_json_graph() {
 fn relaxed_metadata_and_absent_fields_work_over_the_cli() {
     let temporary = tempdir().unwrap();
     let root = temporary.path();
-    initialize(root);
+    initialize_descriptive(root);
     // Neither an imported implementation nor the bundled library is needed for extraction.
     fs::remove_file(root.join("lib/zettel.typ")).unwrap();
     let source = "#import \"styles.typ\": preamble, extra\n#show: preamble\n\
@@ -567,28 +585,14 @@ fn relaxed_metadata_and_absent_fields_work_over_the_cli() {
 fn new_reads_the_user_template_and_configured_source_forms() {
     let temporary = tempdir().unwrap();
     let root = temporary.path();
-    initialize(root);
-    fs::write(
-        root.join("zk.toml"),
-        r#"format = 2
-[new]
-template = "templates/custom.typ.tpl"
-[metadata.abstract]
-form = "content-call"
-name = "summary"
-[metadata.keywords]
-form = "string-array-call"
-name = "tags"
-[metadata.category]
-form = "field-access"
-name = "group"
-"#,
-    )
-    .unwrap();
+    initialize_descriptive(root);
     let template = "#import \"../lib/styles.typ\": preamble\r\n#show: preamble\r\n\
-                    #tags((\"custom\", \"template\"))\r\n= Custom <{{id}}>\r\n\
-                    #summary[Unicode café.]\r\n#group.coding\r\n\r\nID {{id}}.\r\n";
-    let template_path = root.join("templates/custom.typ.tpl");
+                // @zk-field \"keywords\" kind=string-list\r\n#tags((\"custom\", \"template\"))\r\n\
+                = Custom <new>\r\n\
+                // @zk-field \"abstract\" kind=markup\r\n#summary[Unicode café.]\r\n\
+                // @zk-field \"category\" kind=string\r\n#group.coding\r\n\r\n\
+                // @zk-field malformed kind=markup\r\nID {{id}}.\r\n";
+    let template_path = root.join(zk::config::DEFAULT_TEMPLATE_PATH);
     fs::write(&template_path, template).unwrap();
     let library = fs::read(root.join("lib/zettel.typ")).unwrap();
     let output = zk().current_dir(root).arg("new").output().unwrap();
@@ -601,7 +605,12 @@ name = "group"
     let path = root.join(relative.trim());
     let id = path.file_stem().unwrap().to_str().unwrap();
     let rendered = fs::read_to_string(&path).unwrap();
-    assert_eq!(rendered, template.replace("{{id}}", id));
+    let expected = template
+        .replace("<new>", &format!("<{id}>"))
+        .replace("// @zk-field \"keywords\" kind=string-list", "")
+        .replace("// @zk-field \"abstract\" kind=markup", "")
+        .replace("// @zk-field \"category\" kind=string", "");
+    assert_eq!(rendered, expected);
     assert_eq!(fs::read_to_string(&template_path).unwrap(), template);
     assert_eq!(fs::read(root.join("lib/zettel.typ")).unwrap(), library);
     let output = zk()
@@ -637,29 +646,65 @@ name = "group"
 }
 
 #[test]
-fn new_rejects_missing_or_invalid_templates_without_creating_a_note() {
+fn all_commands_reject_invalid_templates_without_replacing_them() {
     for template in [
-        None,
-        Some("= Missing placeholder <2603231410>\n"),
-        Some("= Wrong label <wrong>\nID {{id}}\n"),
-        Some("= Title <{{id}}>\n#abstract(one)\n"),
-        Some("= Title <{{id}}>\n#keywords(computed)\n"),
-        Some("= Title <{{id}}>\n#abstract[a]\n#abstract[b]\n"),
+        "= Title <new>\n#let broken = (",
+        "= Missing label\n",
+        "= One <new>\n= Two <other>\n",
+        "= Title <new>\n// @zk-field \"summary\" kind=markup\n#summary(one)\n",
+        "= Title <new>\n// @zk-field \"tags\" kind=string-list\n#tags(computed)\n",
+        "= Title <new>\n// @zk-field \"summary\" kind=markup\n#summary[a]\n#summary[b]\n",
     ] {
         let temporary = tempdir().unwrap();
         let root = temporary.path();
-        initialize(root);
-        let path = root.join("templates/zettel.typ.tpl");
-        match template {
-            Some(template) => fs::write(&path, template).unwrap(),
-            None => fs::remove_file(&path).unwrap(),
+        initialize_descriptive(root);
+        let path = root.join(zk::config::DEFAULT_TEMPLATE_PATH);
+        fs::write(&path, template).unwrap();
+        for args in [
+            vec!["new"],
+            vec!["check"],
+            vec!["check", "--format", "json"],
+            vec!["graph", "--format", "json"],
+            vec!["query", "search", ""],
+            vec!["lsp"],
+        ] {
+            let output = zk().current_dir(root).args(args).output().unwrap();
+            assert!(!output.status.success(), "accepted {template:?}");
+            assert!(!output.stderr.is_empty());
         }
-        let output = zk().current_dir(root).arg("new").output().unwrap();
-        assert!(!output.status.success(), "accepted {template:?}");
-        assert!(!output.stderr.is_empty());
         assert_eq!(fs::read_dir(root.join("zettel")).unwrap().count(), 0);
-        if let Some(template) = template {
-            assert_eq!(fs::read_to_string(path).unwrap(), template);
+        assert_eq!(fs::read_to_string(path).unwrap(), template);
+    }
+}
+
+#[test]
+fn missing_templates_are_created_with_only_the_core_even_during_inspection() {
+    for args in [
+        vec!["check"],
+        vec!["graph", "--format", "json"],
+        vec!["query", "search", ""],
+        vec!["new"],
+    ] {
+        let temporary = tempdir().unwrap();
+        let root = temporary.path();
+        initialize_descriptive(root);
+        let path = root.join(zk::config::DEFAULT_TEMPLATE_PATH);
+        fs::remove_file(&path).unwrap();
+        fs::remove_dir(path.parent().unwrap()).unwrap();
+        let output = zk().current_dir(root).args(args).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(fs::read_to_string(path).unwrap(), zk::templates::ZETTEL);
+        let graph = zk()
+            .current_dir(root)
+            .args(["graph", "--format", "json"])
+            .output()
+            .unwrap();
+        for node in json_data(&graph.stdout)["nodes"].as_array().unwrap() {
+            assert_eq!(node["metadata"], serde_json::json!({}));
         }
     }
 }
@@ -676,8 +721,8 @@ fn invalid_manifest_rules_are_errors_not_silent_defaults() {
     ] {
         let temporary = tempdir().unwrap();
         let root = temporary.path();
-        initialize(root);
-        fs::write(root.join("zk.toml"), format!("format = 2\n{config}\n")).unwrap();
+        initialize_descriptive(root);
+        fs::write(root.join("zk.toml"), format!("format = 3\n{config}\n")).unwrap();
         let output = zk()
             .current_dir(root)
             .args(["graph", "--format", "json"])
@@ -693,7 +738,7 @@ fn init_preserves_existing_template_files() {
     let temporary = tempdir().unwrap();
     let root = temporary.path();
     fs::create_dir(root.join("templates")).unwrap();
-    let template = root.join("templates/zettel.typ.tpl");
+    let template = root.join(zk::config::DEFAULT_TEMPLATE_PATH);
     fs::write(&template, "user-owned").unwrap();
     let output = zk()
         .args(["init", root.to_str().unwrap()])
@@ -708,7 +753,7 @@ fn init_preserves_existing_template_files() {
 fn isolated_zettel_has_no_diagnostic() {
     let temporary = tempdir().unwrap();
     let root = temporary.path().join("archive");
-    initialize(&root);
+    initialize_descriptive(&root);
     write_zettel(&root, "2603231410", "Isolated", "No links.");
 
     let output = zk().current_dir(&root).arg("check").output().unwrap();
@@ -723,7 +768,7 @@ fn isolated_zettel_has_no_diagnostic() {
 fn check_reports_integrity_errors() {
     let temporary = tempdir().unwrap();
     let root = temporary.path().join("archive");
-    initialize(&root);
+    initialize_descriptive(&root);
     write_zettel(&root, "2603231410", "Dangling", "See @9999999999.");
     write_zettel(&root, "2603231411", "Isolated", "No links.");
     write_zettel(&root, "2603231412", "Malformed", "No links.");
@@ -781,7 +826,7 @@ fn check_reports_integrity_errors() {
 fn formatter_ordered_import_is_valid() {
     let temporary = tempdir().unwrap();
     let root = temporary.path().join("archive");
-    initialize(&root);
+    initialize_descriptive(&root);
     write_zettel(&root, "2603231410", "Formatted", "No links.");
     let path = root.join("zettel/2603231410.typ");
     let source = fs::read_to_string(&path).unwrap().replacen(
@@ -801,7 +846,7 @@ fn formatter_ordered_import_is_valid() {
 fn queries_nodes_links_and_backlinks_as_json() {
     let temporary = tempdir().unwrap();
     let root = temporary.path().join("archive");
-    initialize(&root);
+    initialize_descriptive(&root);
     write_zettel(&root, "2603231410", "Source", "See @2603231411.");
     write_zettel(&root, "2603231411", "Target", "No outgoing links.");
 
@@ -837,7 +882,7 @@ fn queries_nodes_links_and_backlinks_as_json() {
 fn searches_all_metadata_fields_without_capping_or_reordering_results() {
     let temporary = tempdir().unwrap();
     let root = temporary.path().join("archive");
-    initialize(&root);
+    initialize_descriptive(&root);
     write_zettel_with_metadata(
         &root,
         "2603231410",
@@ -934,7 +979,7 @@ fn searches_all_metadata_fields_without_capping_or_reordering_results() {
 fn removal_is_blocked_by_incoming_references() {
     let temporary = tempdir().unwrap();
     let root = temporary.path().join("archive");
-    initialize(&root);
+    initialize_descriptive(&root);
     write_zettel(
         &root,
         "2603231410",
@@ -1031,8 +1076,8 @@ fn explicit_archive_overrides_local_discovery() {
     let temporary = tempdir().unwrap();
     let local = temporary.path().join("local");
     let selected = temporary.path().join("selected");
-    initialize(&local);
-    initialize(&selected);
+    initialize_descriptive(&local);
+    initialize_descriptive(&selected);
 
     let output = zk()
         .current_dir(&local)
@@ -1054,7 +1099,7 @@ fn explicit_relative_archive_supports_existing_archive_commands() {
     let temporary = tempdir().unwrap();
     let root = temporary.path().join("archive");
     let outside = temporary.path().join("outside");
-    initialize(&root);
+    initialize_descriptive(&root);
     fs::create_dir(&outside).unwrap();
     write_zettel(&root, "2603231410", "Selected", "No links.");
 
@@ -1091,7 +1136,7 @@ fn explicit_archive_rejects_invalid_roots_and_init() {
     let missing = temporary.path().join("missing");
     let initialized = temporary.path().join("initialized");
     let target = temporary.path().join("target");
-    initialize(&initialized);
+    initialize_descriptive(&initialized);
 
     let invalid = zk()
         .current_dir(temporary.path())

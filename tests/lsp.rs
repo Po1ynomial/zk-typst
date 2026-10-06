@@ -313,6 +313,10 @@ fn schema_two_node_fixture_and_generic_hover_over_stdio() -> Result<(), Box<dyn 
         include_str!("fixtures/schema2/zk.toml"),
     )?;
     fs::write(
+        temporary.path().join(zk::config::DEFAULT_TEMPLATE_PATH),
+        include_str!("fixtures/schema2/template.typ"),
+    )?;
+    fs::write(
         temporary.path().join("zettel/2603231410.typ"),
         include_str!("fixtures/schema2/note.typ"),
     )?;
@@ -362,9 +366,12 @@ fn exit_without_shutdown_has_status_one() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn query_errors_follow_protocol_two_over_stdio() -> Result<(), Box<dyn Error>> {
+fn missing_template_and_query_errors_follow_protocol_two_over_stdio() -> Result<(), Box<dyn Error>>
+{
     let temporary = tempdir()?;
     Archive::init(temporary.path())?;
+    let template_path = temporary.path().join(zk::config::DEFAULT_TEMPLATE_PATH);
+    fs::remove_file(&template_path)?;
     fs::write(
         temporary.path().join("zettel/2603231410.typ"),
         "= Source <2603231410>\n",
@@ -380,6 +387,13 @@ fn query_errors_follow_protocol_two_over_stdio() -> Result<(), Box<dyn Error>> {
         2
     );
     client.notify("initialized", json!({}))?;
+    assert_eq!(fs::read_to_string(template_path)?, zk::templates::ZETTEL);
+    let node = client.request(
+        "workspace/executeCommand",
+        json!({"command": "zk.queryNode", "arguments": ["2603231410"]}),
+    )?;
+    assert_eq!(node["metadata"], json!({}));
+    assert_eq!(node["title"]["text"], "Source");
     for args in [
         json!([]),
         json!([1]),
@@ -421,19 +435,19 @@ fn configurable_metadata_and_tinymist_boundary_over_stdio() -> Result<(), Box<dy
     let archive = temporary.path().join("archive");
     Archive::init(&archive)?;
     let archive = fs::canonicalize(archive)?;
-    let manifest_path = archive.join("zk.toml");
+    let template_path = archive.join(zk::config::DEFAULT_TEMPLATE_PATH);
     let source_path = archive.join("zettel/2603231410.typ");
     let target_path = archive.join("zettel/2603231411.typ");
     let session_path = archive.join("zettel/2603231412.typ");
     let source_uri = Url::from_file_path(&source_path).unwrap();
     let session_uri = Url::from_file_path(&session_path).unwrap();
-    let manifest_uri = Url::from_file_path(&manifest_path).unwrap();
+    let template_uri = Url::from_file_path(&template_path).unwrap();
     let library_uri = Url::from_file_path(archive.join("lib/zettel.typ")).unwrap();
     fn config(abstract_name: &str) -> String {
         format!(
-            "format = 2\n[metadata.summary]\nform = 'content-call'\nname = '{abstract_name}'\n\
-                 [metadata.tags]\nform = 'string-array-call'\nname = 'tags'\n\
-                 [metadata.topic]\nform = 'field-access'\nname = 'group'\n"
+            "= Title <new>\n// @zk-field \"summary\" kind=markup\n#{abstract_name}[]\n\
+        // @zk-field \"tags\" kind=string-list\n#tags(())\n\
+        // @zk-field \"topic\" kind=string\n#group.coding\n"
         )
     }
     fn dual(id: &str, title: &str) -> String {
@@ -443,7 +457,7 @@ fn configurable_metadata_and_tinymist_boundary_over_stdio() -> Result<(), Box<dy
                  #tags((\"custom\",))\n#group.coding\n"
         )
     }
-    fs::write(&manifest_path, config("summary"))?;
+    fs::write(&template_path, config("summary"))?;
     fs::write(&source_path, dual("2603231410", "Disk source"))?;
     fs::write(&target_path, dual("2603231411", "Disk target"))?;
     let mut client = LspClient::spawn(Path::new(env!("CARGO_BIN_EXE_zk")), &archive)?;
@@ -501,10 +515,10 @@ fn configurable_metadata_and_tinymist_boundary_over_stdio() -> Result<(), Box<dy
         json!({"textDocument": {"uri": library_uri}}),
     )?;
 
-    fs::write(&manifest_path, config("description"))?;
+    fs::write(&template_path, config("description"))?;
     client.notify(
         "workspace/didChangeWatchedFiles",
-        json!({"changes": [{"uri": manifest_uri, "type": 2}]}),
+        json!({"changes": [{"uri": template_uri, "type": 2}]}),
     )?;
     client.wait_notification("textDocument/publishDiagnostics", |params| {
         params["uri"] == source_uri.as_str() && params["version"] == 3
@@ -524,19 +538,22 @@ fn configurable_metadata_and_tinymist_boundary_over_stdio() -> Result<(), Box<dy
     assert_eq!(symbols.as_array().unwrap().len(), 1);
 
     // Invalid changes keep the last valid rules and live graph.
-    fs::write(
-        &manifest_path,
-        "format = 2\n[metadata.summary]\nform = 'content-call'\nname = 'module.description'\n",
-    )?;
+    fs::write(&template_path, "= Title <new>\n#let broken = (\n")?;
     client.notify(
         "workspace/didChangeWatchedFiles",
-        json!({"changes": [{"uri": manifest_uri, "type": 2}]}),
+        json!({"changes": [{"uri": template_uri, "type": 2}]}),
     )?;
     client.wait_notification("window/logMessage", |params| {
         params["type"] == 1
             && params["message"]
                 .as_str()
-                .is_some_and(|message| message.contains("invalid archive configuration"))
+                .is_some_and(|message| message.contains("invalid Zettel template"))
+    })?;
+    client.wait_notification("window/showMessage", |params| {
+        params["type"] == 1
+            && params["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("invalid Zettel template"))
     })?;
     let node = client.request(
         "workspace/executeCommand",
@@ -579,7 +596,7 @@ fn configurable_metadata_and_tinymist_boundary_over_stdio() -> Result<(), Box<dy
             .is_some_and(|watchers| {
                 watchers
                     .iter()
-                    .any(|watcher| watcher["globPattern"] == "**/zk.toml")
+                    .any(|watcher| watcher["globPattern"] == "**/templates/zettel.typ")
             })
     }));
     assert!(
@@ -594,10 +611,10 @@ fn configurable_metadata_and_tinymist_boundary_over_stdio() -> Result<(), Box<dy
                         || message.contains("didSave")
                         || message.contains("didClose")))
     );
-    fs::write(&manifest_path, "format = 2\n")?;
+    fs::write(&template_path, "= Title <new>\n")?;
     client.notify(
-        "workspace/didChangeWatchedFiles",
-        json!({"changes": [{"uri": manifest_uri, "type": 2}]}),
+        "textDocument/didSave",
+        json!({"textDocument": {"uri": template_uri}}),
     )?;
     client.wait_notification("textDocument/publishDiagnostics", |params| {
         params["uri"] == source_uri.as_str()
@@ -615,6 +632,33 @@ fn configurable_metadata_and_tinymist_boundary_over_stdio() -> Result<(), Box<dy
         client.request("workspace/symbol", json!({"query": "custom"}))?,
         json!([])
     );
+    fs::write(&template_path, config("description"))?;
+    client.notify(
+        "workspace/didChangeWatchedFiles",
+        json!({"changes": [{"uri": template_uri, "type": 2}]}),
+    )?;
+    client.wait_notification("textDocument/publishDiagnostics", |params| {
+        params["uri"] == source_uri.as_str()
+            && params["diagnostics"]
+                .as_array()
+                .is_some_and(|diagnostics| diagnostics.len() == 1)
+    })?;
+    fs::remove_file(&template_path)?;
+    client.notify(
+        "workspace/didChangeWatchedFiles",
+        json!({"changes": [{"uri": template_uri, "type": 3}]}),
+    )?;
+    client.wait_notification("textDocument/publishDiagnostics", |params| {
+        params["uri"] == source_uri.as_str()
+            && params["diagnostics"].as_array().is_some_and(Vec::is_empty)
+    })?;
+    let node = client.request(
+        "workspace/executeCommand",
+        json!({"command": "zk.queryNode", "arguments": ["2603231410"]}),
+    )?;
+    assert_eq!(node["metadata"], json!({}));
+    assert_eq!(node["title"]["text"], "Overlay café");
+    assert_eq!(fs::read_to_string(&template_path)?, zk::templates::ZETTEL);
     client.shutdown()?;
     Ok(())
 }
@@ -623,6 +667,10 @@ fn protocol_session(encoding: Encoding) -> Result<(), Box<dyn Error>> {
     let temporary = tempdir()?;
     let archive = temporary.path().join("archive");
     Archive::init(&archive)?;
+    fs::write(
+        archive.join(zk::config::DEFAULT_TEMPLATE_PATH),
+        zk::templates::DESCRIPTIVE_TEMPLATE,
+    )?;
     let archive = fs::canonicalize(archive)?;
     fs::write(
         archive.join("zettel/2603231410.typ"),

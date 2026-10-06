@@ -6,8 +6,7 @@ use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime};
 use thiserror::Error;
 
 use crate::config::{ARCHIVE_FORMAT, DEFAULT_TEMPLATE_PATH, Manifest, MetadataContract};
-use crate::extract::extract;
-use crate::model::Severity;
+use crate::template::Template;
 use crate::templates;
 
 const MANIFEST_NAME: &str = "zk.toml";
@@ -34,9 +33,6 @@ pub enum ArchiveError {
 
     #[error("archive format {found} is not supported; expected {ARCHIVE_FORMAT}")]
     UnsupportedFormat { found: u32 },
-
-    #[error("invalid archive configuration {path}: {message}")]
-    InvalidConfig { path: PathBuf, message: String },
 
     #[error("invalid Zettel template {path}: {message}")]
     InvalidTemplate { path: PathBuf, message: String },
@@ -73,7 +69,7 @@ pub enum AgentSkillInstallWarning {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Archive {
     root: PathBuf,
-    manifest: Manifest,
+    template: Template,
 }
 
 impl Archive {
@@ -83,13 +79,12 @@ impl Archive {
         if !manifest.is_file() {
             return Err(ArchiveError::NotFound(root.to_path_buf()));
         }
-        let manifest = read_manifest(&manifest)?;
-        let archive = Self {
+        read_manifest(&manifest)?;
+        validate_layout(root)?;
+        Ok(Self {
             root: root.to_path_buf(),
-            manifest,
-        };
-        archive.validate_layout()?;
-        Ok(archive)
+            template: read_template(root)?,
+        })
     }
 
     pub fn discover(start: impl AsRef<Path>) -> Result<Self, ArchiveError> {
@@ -145,19 +140,11 @@ impl Archive {
     }
 
     pub fn metadata_contract(&self) -> &MetadataContract {
-        &self.manifest.metadata
+        &self.template.metadata
     }
 
     pub fn validate_layout(&self) -> Result<(), ArchiveError> {
-        let zettel_dir = self.root.join(ZETTEL_DIR);
-        if !zettel_dir.is_dir() {
-            return Err(ArchiveError::MissingLayout {
-                kind: "Zettel directory",
-                path: zettel_dir,
-            });
-        }
-
-        Ok(())
+        validate_layout(&self.root)
     }
 
     pub fn create_zettel(&self) -> Result<PathBuf, ArchiveError> {
@@ -182,53 +169,16 @@ impl Archive {
 
     fn create_zettel_at(&self, start: NaiveDateTime) -> Result<PathBuf, ArchiveError> {
         self.validate_layout()?;
-        let template_path = self.root.join(&self.manifest.new.template);
-        let resolved =
-            fs::canonicalize(&template_path).map_err(|source| io_error(&template_path, source))?;
-        let root = fs::canonicalize(&self.root).map_err(|source| io_error(&self.root, source))?;
-        if !resolved.starts_with(&root) {
-            return Err(ArchiveError::InvalidTemplate {
-                path: template_path,
-                message: "template must resolve beneath the archive root".to_owned(),
-            });
-        }
-        let template =
-            fs::read_to_string(&resolved).map_err(|source| io_error(&template_path, source))?;
-        if !template.contains("{{id}}") {
-            return Err(ArchiveError::InvalidTemplate {
-                path: template_path,
-                message: "template must contain the {{id}} placeholder".to_owned(),
-            });
-        }
+        read_manifest(&self.root.join(MANIFEST_NAME))?;
+        // Re-read the schema and defaults before creation, even for a retained Archive.
+        let template = read_template(&self.root)?;
         let mut candidate = start;
         let century = candidate.year().div_euclid(100);
 
         loop {
             let id = candidate.format("%y%m%d%H%M").to_string();
             let path = self.root.join(ZETTEL_DIR).join(format!("{id}.typ"));
-            let rendered = template.replace("{{id}}", &id);
-            if u32::try_from(rendered.len()).is_err() {
-                return Err(ArchiveError::InvalidTemplate {
-                    path: template_path,
-                    message: "rendered template exceeds the 4 GiB byte-range limit".to_owned(),
-                });
-            }
-            let extracted = extract(&id, "", &rendered, self.metadata_contract());
-            let errors: Vec<_> = extracted
-                .diagnostics
-                .iter()
-                .filter(|diagnostic| {
-                    diagnostic.severity == Severity::Error
-                        && diagnostic.code.starts_with("metadata.")
-                })
-                .map(|diagnostic| diagnostic.message.as_str())
-                .collect();
-            if !errors.is_empty() {
-                return Err(ArchiveError::InvalidTemplate {
-                    path: template_path,
-                    message: errors.join("; "),
-                });
-            }
+            let rendered = template.render(&id);
             match OpenOptions::new().write(true).create_new(true).open(&path) {
                 Ok(mut file) => {
                     file.write_all(rendered.as_bytes())
@@ -309,6 +259,17 @@ pub fn is_zettel_id(id: &str) -> bool {
         .is_some()
 }
 
+fn validate_layout(root: &Path) -> Result<(), ArchiveError> {
+    let path = root.join(ZETTEL_DIR);
+    if !path.is_dir() {
+        return Err(ArchiveError::MissingLayout {
+            kind: "Zettel directory",
+            path,
+        });
+    }
+    Ok(())
+}
+
 fn read_manifest(path: &Path) -> Result<Manifest, ArchiveError> {
     let source = fs::read_to_string(path).map_err(|source| io_error(path, source))?;
     let manifest: Manifest =
@@ -323,13 +284,44 @@ fn read_manifest(path: &Path) -> Result<Manifest, ArchiveError> {
         });
     }
 
-    manifest
-        .validate()
-        .map_err(|message| ArchiveError::InvalidConfig {
-            path: path.to_path_buf(),
-            message,
-        })?;
     Ok(manifest)
+}
+
+fn read_template(root: &Path) -> Result<Template, ArchiveError> {
+    let path = root.join(DEFAULT_TEMPLATE_PATH);
+    match fs::symlink_metadata(&path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let parent = path.parent().expect("template has a parent");
+            fs::create_dir_all(parent).map_err(|source| io_error(parent, source))?;
+            let resolved_parent =
+                fs::canonicalize(parent).map_err(|source| io_error(parent, source))?;
+            let resolved_root = fs::canonicalize(root).map_err(|source| io_error(root, source))?;
+            if !resolved_parent.starts_with(&resolved_root) {
+                return Err(ArchiveError::InvalidTemplate {
+                    path,
+                    message: "template must resolve beneath the archive root".to_owned(),
+                });
+            }
+            match write_new(&path, templates::ZETTEL) {
+                Ok(()) => {}
+                Err(ArchiveError::Io { source, .. })
+                    if source.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Err(source) => return Err(io_error(&path, source)),
+    }
+    let resolved = fs::canonicalize(&path).map_err(|source| io_error(&path, source))?;
+    let resolved_root = fs::canonicalize(root).map_err(|source| io_error(root, source))?;
+    if !resolved.starts_with(&resolved_root) {
+        return Err(ArchiveError::InvalidTemplate {
+            path,
+            message: "template must resolve beneath the archive root".to_owned(),
+        });
+    }
+    let source = fs::read_to_string(&resolved).map_err(|source| io_error(&path, source))?;
+    Template::parse(source).map_err(|message| ArchiveError::InvalidTemplate { path, message })
 }
 
 fn write_new(path: &Path, contents: &str) -> Result<(), ArchiveError> {
@@ -373,6 +365,7 @@ mod tests {
         let archive = Archive::init(&root).unwrap();
 
         assert_eq!(archive.root(), root);
+        assert!(archive.metadata_contract().0.is_empty());
         assert_eq!(
             fs::read_to_string(root.join("zk.toml")).unwrap(),
             templates::MANIFEST
@@ -458,7 +451,7 @@ mod tests {
     #[test]
     fn opening_an_archive_validates_its_layout() {
         let temporary = tempdir().unwrap();
-        fs::write(temporary.path().join("zk.toml"), "format = 2\n").unwrap();
+        fs::write(temporary.path().join("zk.toml"), "format = 3\n").unwrap();
 
         assert!(matches!(
             Archive::open(temporary.path()).unwrap_err(),
@@ -485,8 +478,8 @@ mod tests {
         let temporary = tempdir().unwrap();
         let external = tempdir().unwrap();
         let archive = Archive::init(temporary.path()).unwrap();
-        let target = external.path().join("external.tpl");
-        fs::write(&target, "= Title <{{id}}>\n").unwrap();
+        let target = external.path().join("external.typ");
+        fs::write(&target, "= Title <new>\n").unwrap();
         let template = archive.root().join(DEFAULT_TEMPLATE_PATH);
         fs::remove_file(&template).unwrap();
         std::os::unix::fs::symlink(&target, &template).unwrap();
@@ -498,7 +491,39 @@ mod tests {
             fs::read_dir(archive.root().join("zettel")).unwrap().count(),
             0
         );
-        assert_eq!(fs::read_to_string(target).unwrap(), "= Title <{{id}}>\n");
+        assert_eq!(fs::read_to_string(target).unwrap(), "= Title <new>\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn missing_template_recovery_cannot_write_through_external_or_dangling_symlinks() {
+        let temporary = tempdir().unwrap();
+        let external = tempdir().unwrap();
+        Archive::init(temporary.path()).unwrap();
+        let template = temporary.path().join(DEFAULT_TEMPLATE_PATH);
+        fs::remove_file(&template).unwrap();
+        fs::remove_dir(template.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(external.path(), template.parent().unwrap()).unwrap();
+        assert!(matches!(
+            Archive::open(temporary.path()),
+            Err(ArchiveError::InvalidTemplate { .. })
+        ));
+        assert!(!external.path().join("zettel.typ").exists());
+        fs::remove_file(template.parent().unwrap()).unwrap();
+        fs::create_dir(template.parent().unwrap()).unwrap();
+        let missing = temporary.path().join("absent.typ");
+        std::os::unix::fs::symlink(&missing, &template).unwrap();
+        assert!(matches!(
+            Archive::open(temporary.path()),
+            Err(ArchiveError::Io { .. })
+        ));
+        assert!(
+            fs::symlink_metadata(&template)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(!missing.exists());
     }
 
     #[test]

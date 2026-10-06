@@ -1,6 +1,6 @@
 # CLI contract
 
-Status: implemented in zk 0.2.0. See the [version matrix](README.md#status) and [System](../SYSTEM.md) for flows and limitations.
+Status: implemented in zk 0.3.0. See the [version matrix](README.md#status) and [System](../SYSTEM.md) for flows and limitations.
 
 ## Invocation and archive selection
 
@@ -47,45 +47,58 @@ JSON output is one envelope, not JSON Lines or a stream of progress records. Its
 
 ## Initialization and source declarations
 
-`init` creates the root manifest, flat `zettel/` directory, initial `lib/zettel.typ`, and initial `templates/zettel.typ.tpl`. It must not overwrite an existing manifest, note directory, library file, or template file. Installed source files immediately become user-owned. The generated manifest explicitly contains:
+`init` creates `zk.toml`, the flat `zettel/` directory, `lib/zettel.typ`, and `templates/zettel.typ`. It must not overwrite existing paths. Installed files immediately become user-owned. The manifest contains only:
 
 ```toml
-format = 2
-
-[new]
-template = "templates/zettel.typ.tpl"
-
-[metadata.abstract]
-form = "content-call"
-name = "abstract"
-
-[metadata.keywords]
-form = "string-arguments-call"
-name = "keywords"
-
-[metadata.category]
-form = "field-access"
-name = "category"
+format = 3
 ```
 
-These metadata definitions are initialization seeds only. Runtime extraction must not restore a deleted definition. An omitted or empty metadata table means no extra metadata extraction. Adding, removing, or renaming a field changes its retrieved entries without rewriting existing notes, templates, or libraries.
+Unknown manifest properties, including earlier metadata tables and template-path settings, are rejected. The template path is fixed. The initialized template is ordinary Typst with no extra metadata declarations:
 
-`metadata` is a map of user-selected, nonempty field names. Each declaration has required `form` and `name` properties. `name` is one direct Typst identifier; it is independent of the map key. Any declared field can use one of these forms:
+```typst
+#import "../lib/zettel.typ": zettel
+#show: zettel
 
-| Form | Source example | Output kind |
+= Untitled <new>
+```
+
+Filename identity, exactly one direct level-one title with its ID label, and literal ten-digit links are independent of the template's metadata declarations. The template's title label is a creation placeholder; any syntactically valid label is accepted. Notes must use their filename ID instead.
+
+### Declaration comments
+
+Only `templates/zettel.typ` declares additional tracked metadata. A declaration is a standalone top-level line comment of this form:
+
+```typst
+// @zk-field "summary" kind=markup
+#summary[]
+```
+
+After the comment delimiter and optional whitespace, the marker is exactly `@zk-field` followed by a space, a JSON-quoted field name, whitespace, and `kind=KIND`. The remaining comment must contain only the kind and optional whitespace. JSON string escapes are decoded. Field names are case-sensitive, nonempty strings with no engine-defined roles. The kind token contains lowercase ASCII letters and hyphens; supported kinds are `markup`, `string`, and `string-list`.
+
+Recognition uses parsed comment nodes, not source-text searches. Strings, raw blocks, nested comments, trailing comments on an element's line, and block comments cannot declare fields. Comments that do not fully parse as declarations are ordinary Typst comments, silently preserved. A syntactically valid declaration with an empty name, unsupported kind, unsupported element, or conflicting selector is a template error.
+
+A declaration attaches to the next direct top-level element. Whitespace and ordinary comments may intervene; prose or other elements may not be skipped. Only one declaration may attach to an element. An unattached declaration is an error. The element supplies the selector, starter value, and one of four inferred retrieval shapes:
+
+| Template element | Declared kind | Inferred retrieval |
 | --- | --- | --- |
-| `content-call` | `#summary[Content]` | `markup` |
-| `string-arguments-call` | `#tag("one", "two")` | `string-list` |
-| `string-array-call` | `#tag(("one", "two"))` | `string-list` |
-| `field-access` | `#group.coding` | `string` |
+| `#summary[Content]` | `markup` | One literal content-block argument |
+| `#tag("one", "two")` or `#tag()` | `string-list` | Positional string literals |
+| `#tag(("one", "two"))` or `#tag(())` | `string-list` | One literal string-array argument |
+| `#group.coding` | `string` | Literal member name of a direct field access |
 
-The example names must be supplied as the rule's `name`. Calls require direct literal arguments of the shown shape. The array form accepts exactly one literal array argument. Content calls accept exactly one literal content block with unrestricted Typst inside it. Lists reject computed items, spreads, named arguments, and extra arguments to the array form.
+The callee or field-access target must be a direct Typst identifier. Markup may contain arbitrary Typst, retained as source rather than evaluated. Lists reject computed values, spreads, named arguments, and extra array-form arguments. Qualified calls, binding resolution, literal dictionaries, and evaluated values are unsupported. Every starter value must satisfy its inferred rule. Duplicate field names, overlapping call selectors even with different argument shapes, and overlapping field-access selectors are errors.
 
-Only direct top-level declarations count. They may appear in any order and position among imports, styles, show rules, and prose. Matching identifies source spellings without resolving imports, bindings, aliases, qualified calls, nested declarations, conditionals, or generated values. Unrecognized constructs remain ordinary Typst. Rules selecting the same call name are ambiguous even if their argument forms differ; repeated field-access rules for the same target are also ambiguous. Invalid or unsupported rules must fail configuration loading rather than falling back.
+The engine compiles these declarations into independent matchers. In notes, recognized elements may appear in any order and position at the direct top level among prose, imports, and styles. Notes do not need declaration comments; comments inside notes never define their schema. Each declared field may occur zero or one times. Absence is allowed; malformed or repeated recognized elements produce field-specific diagnostics and `null`. Without annotations, every node has `metadata: {}`. Removing an annotation disables tracking without rewriting existing notes.
 
-Each declared field may occur zero or one times in a note. Absence is allowed. Duplicates or malformed recognized declarations produce field-specific diagnostics and a `null` value. One direct level-one title with its filename ID label remains required independently of configurable metadata. Missing or malformed contents never erase a canonical filename's node identity.
+Abstract, keywords, and category are not built-in fields or initializer defaults. [An optional descriptive template](../../examples/templates/descriptive.typ) supplies those fields and their presentation helpers. Users may copy it into `templates/zettel.typ` or author their own. No command silently installs it.
 
-Only `zk.toml` and `zettel/` are needed for archive inspection. An imported implementation or a particular presentation library is not an extraction requirement. The initial library is supplied for rendering convenience; Tinymist owns import, binding, and type validation.
+### Template availability and errors
+
+All archive-loading commands validate the saved template. If the file is absent, they create the minimal core template, creating its directory if needed and never overwriting a concurrent file. This is an explicit filesystem-writing exception for inspection commands and LSP startup/reload. Deleting a template resets tracking to the minimal core, leaving all note contents intact.
+
+A present template with Typst syntax errors, invalid core structure, or invalid metadata declarations fails loading eagerly. It is never replaced or treated as absent. Read or creation failures are operational errors. Dangling symlinks are errors, not missing templates. Both an existing template's resolved path and the parent used for missing-template creation must stay beneath the archive root.
+
+The template is an extraction dependency; imported implementations and the presentation library are not. `zk` does not evaluate imports or compile notes. Tinymist owns ordinary binding, import, and type validation.
 
 `--agent-skills` optionally installs the bundled skills under `.agents/skills/`. Installation is best-effort: conflicts and filesystem failures warn without failing canonical archive creation. Existing same-name skills remain untouched. Installed copies are user-owned and are not subsequently validated or refreshed. Initialization does not invoke Git, stage files, or create commits. Supplementary Git initialization is a separate accepted but unimplemented request.
 
@@ -95,11 +108,9 @@ Successful initialization prints its root path. The path may be relative and ref
 
 `new` allocates a local-time ten-digit `YYMMDDHHmm` ID. Occupied filenames cause allocation to advance one minute at a time within the supported century. The ID is the note's permanent address, not a mutable title or a guarantee of precise creation time.
 
-`new.template` selects a relative UTF-8 template file beneath the archive root. Its default path, when this setting is omitted, is `templates/zettel.typ.tpl`; there is no fallback to compiled-in template contents. Resolved symlink targets must also stay beneath the root.
+`new` re-reads the saved `templates/zettel.typ`. It replaces only the parsed core title-label range with the allocated ID and removes only successfully parsed declaration-comment ranges. All other bytes, including ordinary comments, indentation, line endings, and literal `{{id}}` text, remain unchanged. There is no general substitution language, script execution, or Typst evaluation. Imports are authored for the destination note's location.
 
-The template must contain a literal `{{id}}` marker. Creation replaces every occurrence with the allocated ID and preserves all other bytes, including line endings. There are no other substitutions, template expressions, scripts, or evaluation. Imports must be authored for the destination Zettel's location, not the template directory.
-
-The rendered title and recognized metadata must satisfy the source contract before a new file is created. This is not compilation or general Typst validation, and it cannot infer intent behind unrecognized calls. Missing templates, missing markers, or invalid rendered metadata fail without creating a note. Existing files are never overwritten. Success prints the archive-relative `zettel/ID.typ` path.
+The template must parse, have exactly one direct labelled level-one title, and contain valid defaults for its tracked fields. Validation occurs before any note is created. Existing notes are never overwritten. Success prints the archive-relative `zettel/ID.typ` path.
 
 `remove ID` requires an existing node and refuses deletion while any incoming authored references remain, including self-references or references in malformed notes. Refusal reports every blocking occurrence's source path and UTF-8 byte range on stderr and leaves the target untouched. Success deletes only the target file and prints its archive-relative path. Removal never edits incoming references or other source files.
 
@@ -118,7 +129,7 @@ All inspection commands use saved state. They do not discover, contact, or share
 
 The graph format option is required and only `json` is supported. Check defaults to `text`. Queries are JSON-only and have no format option. Missing query targets produce errors rather than successful `null` results. A dangling link target remains visible through graph output even though no target node can be queried.
 
-Search uses the shared [metadata matching rule](data.md#metadata-search). It searches IDs, titles, and all textual declared fields, not just default metadata names. Broad or empty searches can produce large results. Node, link, range, diagnostic, and ordering definitions are shared across all commands.
+Search uses the shared [metadata matching rule](data.md#metadata-search). It searches IDs, titles, and all textual declared fields, without privileged metadata names. Broad or empty searches can produce large results. Node, link, range, diagnostic, and ordering definitions are shared across all commands.
 
 Graph and query commands do not fail merely because the inspected archive contains integrity diagnostics; they return available data. Check fails on error-severity diagnostics but not warnings. Fatal loading, unsupported configuration, or I/O failures fail the operation. Checking includes generic Typst syntax diagnostics as a standalone saved-state check, but does not compile or evaluate Typst.
 

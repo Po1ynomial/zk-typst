@@ -6,6 +6,15 @@ use zk::archive::Archive;
 use zk::model::{LinkResolution, MetadataValue};
 use zk::provider::{Provider, UpdateOutcome};
 
+fn initialize_descriptive(root: &std::path::Path) -> Result<Archive, Box<dyn Error>> {
+    Archive::init(root)?;
+    fs::write(
+        root.join(zk::config::DEFAULT_TEMPLATE_PATH),
+        zk::templates::DESCRIPTIVE_TEMPLATE,
+    )?;
+    Ok(Archive::open(root)?)
+}
+
 fn zettel(id: &str, title: &str, body: &str) -> String {
     format!(
         r#"#import "../lib/zettel.typ": zettel, abstract, keywords, category
@@ -44,9 +53,9 @@ fn markup_text<'a>(provider: &'a Provider, id: &str, field: &str) -> &'a str {
 }
 
 #[test]
-fn manifest_reload_reextracts_disk_and_overlays_in_one_revision() -> Result<(), Box<dyn Error>> {
+fn schema_reload_reextracts_disk_and_overlays_in_one_revision() -> Result<(), Box<dyn Error>> {
     let temporary = tempdir()?;
-    let archive = Archive::init(temporary.path())?;
+    let archive = initialize_descriptive(temporary.path())?;
     let source_path = archive.root().join("zettel/2603231410.typ");
     let target_path = archive.root().join("zettel/2603231411.typ");
     let session_path = archive.root().join("zettel/2603231412.typ");
@@ -65,11 +74,14 @@ fn manifest_reload_reextracts_disk_and_overlays_in_one_revision() -> Result<(), 
     let revision = provider.revision();
     // An open buffer remains usable even when its saved file disappears.
     fs::remove_file(&source_path)?;
-    let config = "format = 2\n[metadata.summary]\nform = 'content-call'\nname = 'summary'\n\
-                  [metadata.tags]\nform = 'string-array-call'\nname = 'tags'\n\
-                  [metadata.topic]\nform = 'field-access'\nname = 'group'\n";
-    fs::write(archive.root().join("zk.toml"), config)?;
-    assert!(provider.reload_manifest()?);
+    let config = "= Title <new>\n// @zk-field \"summary\" kind=markup\n#summary[]\n\
+              // @zk-field \"tags\" kind=string-list\n#tags(())\n\
+              // @zk-field \"topic\" kind=string\n#group.new\n";
+    fs::write(
+        archive.root().join(zk::config::DEFAULT_TEMPLATE_PATH),
+        config,
+    )?;
+    assert!(provider.reload_schema()?);
     assert_eq!(provider.revision(), revision + 1);
     for (id, title) in [
         ("2603231410", "Overlay source"),
@@ -104,7 +116,7 @@ fn manifest_reload_reextracts_disk_and_overlays_in_one_revision() -> Result<(), 
         provider.apply_prepared(pending),
         UpdateOutcome::StaleGeneration { .. }
     ));
-    assert!(!provider.reload_manifest()?);
+    assert!(!provider.reload_schema()?);
     assert_eq!(provider.revision(), revision + 1);
     assert_eq!(
         provider.change_buffer(&source_path, 4, "stale")?,
@@ -124,8 +136,11 @@ fn manifest_reload_reextracts_disk_and_overlays_in_one_revision() -> Result<(), 
     assert!(saved.node("2603231412").is_none());
     let revision = provider.revision();
     // Removing all declarations disables extraction, including initializer defaults.
-    fs::write(archive.root().join("zk.toml"), "format = 2\n")?;
-    assert!(provider.reload_manifest()?);
+    fs::write(
+        archive.root().join(zk::config::DEFAULT_TEMPLATE_PATH),
+        "= Title <new>\n",
+    )?;
+    assert!(provider.reload_schema()?);
     assert_eq!(provider.revision(), revision + 1);
     assert!(provider.nodes().iter().all(|node| node.metadata.is_empty()));
     assert!(provider.search_metadata("new").is_empty());
@@ -139,10 +154,10 @@ fn manifest_reload_reextracts_disk_and_overlays_in_one_revision() -> Result<(), 
     );
     // A field may use any supported value form, independently of its key.
     fs::write(
-        archive.root().join("zk.toml"),
-        "format = 2\n[metadata.custom]\nform = 'field-access'\nname = 'group'\n",
+        archive.root().join(zk::config::DEFAULT_TEMPLATE_PATH),
+        "= Title <new>\n// @zk-field \"custom\" kind=string\n#group.new\n",
     )?;
-    assert!(provider.reload_manifest()?);
+    assert!(provider.reload_schema()?);
     assert!(provider.nodes().iter().all(|node| node.metadata.len() == 1
         && node.metadata["custom"] == Some(MetadataValue::String("new".to_owned()))));
     provider.close_buffer(&source_path)?;
@@ -151,10 +166,10 @@ fn manifest_reload_reextracts_disk_and_overlays_in_one_revision() -> Result<(), 
 }
 
 #[test]
-fn failed_manifest_reload_preserves_rules_graph_versions_and_pending_updates()
+fn failed_schema_reload_preserves_rules_graph_versions_and_pending_updates()
 -> Result<(), Box<dyn Error>> {
     let temporary = tempdir()?;
-    let archive = Archive::init(temporary.path())?;
+    let archive = initialize_descriptive(temporary.path())?;
     let source_path = archive.root().join("zettel/2603231410.typ");
     let target_path = archive.root().join("zettel/2603231411.typ");
     let source = "= Title <2603231410>\n#abstract[Old]\n#summary[New]\n";
@@ -165,17 +180,17 @@ fn failed_manifest_reload_preserves_rules_graph_versions_and_pending_updates()
     let pending = provider.prepare_disk_update(&target_path)?.unwrap();
     let before = serde_json::to_value(provider.snapshot())?;
     fs::write(
-        archive.root().join("zk.toml"),
-        "format = 2\n[metadata.abstract]\nform = 'content-call'\nname = 'module.summary'\n",
+        archive.root().join(zk::config::DEFAULT_TEMPLATE_PATH),
+        "= Title <new>\n// @zk-field \"abstract\" kind=markup\n#module.summary[]\n",
     )?;
-    assert!(provider.reload_manifest().is_err());
+    assert!(provider.reload_schema().is_err());
     assert_eq!(serde_json::to_value(provider.snapshot())?, before);
     fs::write(
-        archive.root().join("zk.toml"),
-        "format = 2\n[metadata.abstract]\nform = 'content-call'\nname = 'summary'\n",
+        archive.root().join(zk::config::DEFAULT_TEMPLATE_PATH),
+        "= Title <new>\n// @zk-field \"abstract\" kind=markup\n#summary[]\n",
     )?;
     fs::write(&target_path, [0xff])?;
-    assert!(provider.reload_manifest().is_err());
+    assert!(provider.reload_schema().is_err());
     assert_eq!(serde_json::to_value(provider.snapshot())?, before);
     assert!(matches!(
         provider.apply_prepared(pending),
@@ -193,7 +208,7 @@ fn failed_manifest_reload_preserves_rules_graph_versions_and_pending_updates()
 #[test]
 fn overlay_lifecycle_preserves_coherent_revisions_and_snapshot() -> Result<(), Box<dyn Error>> {
     let temporary = tempdir()?;
-    let archive = Archive::init(temporary.path())?;
+    let archive = initialize_descriptive(temporary.path())?;
     fs::write(
         archive.root().join("zettel/2603231410.typ"),
         zettel("2603231410", "Disk source", "Link @2603231411."),
@@ -345,5 +360,45 @@ fn overlay_lifecycle_preserves_coherent_revisions_and_snapshot() -> Result<(), B
             .all(|link| link.resolution == LinkResolution::Resolved)
     );
     assert!(snapshot.diagnostics.is_empty());
+    Ok(())
+}
+
+#[test]
+fn template_defaults_do_not_change_the_graph_and_deletion_resets_only_tracking()
+-> Result<(), Box<dyn Error>> {
+    let temporary = tempdir()?;
+    let archive = initialize_descriptive(temporary.path())?;
+    let template_path = archive.root().join(zk::config::DEFAULT_TEMPLATE_PATH);
+    let source = "= Stable title <2603231410>\n// @zk-field \"rogue\" kind=markup\n#rogue[Not tracked]\n#abstract[Tracked]\n#keywords(\"test\")\n#category.thoughts\n";
+    let path = archive.root().join("zettel/2603231410.typ");
+    fs::write(&path, source)?;
+    let mut provider = Provider::load(&archive)?;
+    assert!(
+        !provider
+            .node("2603231410")
+            .unwrap()
+            .metadata
+            .contains_key("rogue")
+    );
+    let before = serde_json::to_value(provider.snapshot())?;
+    fs::write(
+        &template_path,
+        zk::templates::DESCRIPTIVE_TEMPLATE
+            .replace("Untitled", "Another default")
+            .replace("#category.thoughts", "#category.coding"),
+    )?;
+    assert!(!provider.reload_schema()?);
+    assert_eq!(serde_json::to_value(provider.snapshot())?, before);
+    fs::write(&template_path, "= Title <new>\n#let broken = (")?;
+    assert!(provider.reload_schema().is_err());
+    assert_eq!(serde_json::to_value(provider.snapshot())?, before);
+    fs::remove_file(&template_path)?;
+    assert!(provider.reload_schema()?);
+    assert_eq!(provider.revision(), 2);
+    assert!(provider.node("2603231410").unwrap().metadata.is_empty());
+    assert_eq!(title(&provider, "2603231410"), "Stable title");
+    assert_eq!(fs::read_to_string(&path)?, source);
+    assert_eq!(fs::read_to_string(&template_path)?, zk::templates::ZETTEL);
+    assert!(!provider.reload_schema()?);
     Ok(())
 }

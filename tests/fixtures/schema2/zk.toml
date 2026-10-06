@@ -1,17 +1,1 @@
-format = 2
-
-[metadata.summary]
-form = "content-call"
-name = "summary"
-
-[metadata.tags]
-form = "string-arguments-call"
-name = "tag"
-
-[metadata.topic]
-form = "field-access"
-name = "group"
-
-[metadata.review]
-form = "content-call"
-name = "review"
+format = 3

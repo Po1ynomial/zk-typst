@@ -19,8 +19,8 @@ Agent workers may use optional archive-local operating skills and the same saved
 ### Archive
 
 - One directory is one archive and one ID namespace.
-- `zk.toml` marks the root, declares `format = 2`, and configures bounded metadata source matching and the note template path.
-- `zk init` creates the source layout with explicit metadata seed definitions, a user-owned template, and a Typst library, without initializing or modifying Git.
+- `zk.toml` marks the root and contains only `format = 3`. The fixed `templates/zettel.typ` declares tracked metadata through comments.
+- `zk init` creates the minimal core template and reference library without initializing or modifying Git. Optional templates supply additional fields.
 - `zk init --agent-skills` may install bundled archive-local skills. Installed skills immediately become user-owned.
 - An explicit CLI archive path may select an archive outside the current directory.
 - Zettel live in one flat `zettel/` directory.
@@ -33,9 +33,9 @@ Agent workers may use optional archive-local operating skills and the same saved
 - The filename establishes identity even when the contents are malformed.
 - Metadata uses configurable direct top-level Typst forms in any order and position among other source constructs.
 - One title with its ID label is required. Other metadata is a map of optional user-declared fields, with markup, string, and string-list values.
-- Removing declarations disables their extraction; omitted metadata configuration has no hidden field defaults.
+- Removing template declarations disables extraction. There are no built-in additional fields. A missing template is created with only the core; an invalid one raises an error.
 - Imports, show rules, and presentation are user choices. Abstract content and ordinary document content are unrestricted Typst.
-- `zk new` substitutes `{{id}}` in the archive-local template and validates rendered metadata without evaluating Typst.
+- `zk new` replaces the parsed title label and strips declaring comments, preserving all other bytes without evaluating Typst.
 - Literal ten-digit `@ID` references create directed links.
 
 ### Provider
@@ -65,7 +65,7 @@ zk lsp
 
 - `zk lsp` handles archive metadata, links, reference completion, navigation, backlinks, queries, and archive-specific diagnostics.
 - Tinymist handles general Typst language intelligence and dictionary-member completion. Generic syntax diagnostics remain available in the CLI, not the archive language server.
-- Saved manifest changes atomically re-extract disk and open-buffer metadata using the new rules.
+- Saved template changes atomically re-extract disk and open-buffer metadata using the new rules. Invalid reloads visibly report errors while retaining the previous live state.
 - Full-text document synchronization supplies live unsaved overlays.
 - LSP initialization advertises ZK protocol 2, data schema 2, and feature flags independently of the executable version.
 - Protocol-level tests use the real standard-input and standard-output transport.
@@ -73,7 +73,7 @@ zk lsp
 ## Constraints
 
 - One machine writes the archive.
-- Note paths, title identity, and reference syntax are fixed in archive format 2. Supported metadata source forms and the template path are configurable.
+- Note paths, the template path, title identity, and reference syntax are fixed in archive format 3. Comment declarations select bounded direct metadata forms.
 - IDs use local time with minute resolution and a ten-digit `YYMMDDHHmm` representation.
 - `zk` pins a supported Typst minor version because `typst-syntax` is not a stable independent protocol.
 - The archive remains relocatable and complete beneath its root.
@@ -120,7 +120,7 @@ Version one succeeds when:
 - `zk lsp` can search metadata, complete and resolve references, and report backlinks against unsaved state;
 - archive metadata extraction respects the configured rules without enforcing presentation;
 - creation uses an editable archive-local template;
-- manifest reloads preserve open source and reject stale results;
+- schema reloads preserve open source and reject stale results;
 - backlinks and reference locations update as buffers change;
 - `zk check` reports malformed metadata, mismatched IDs, and dangling links;
 - removal is blocked when incoming references exist;

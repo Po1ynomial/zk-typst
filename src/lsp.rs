@@ -13,6 +13,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 use typst_syntax::{LinkedNode, Side, Source, SyntaxKind};
 
 use crate::archive::{Archive, is_zettel_id};
+use crate::config::DEFAULT_TEMPLATE_PATH;
 use crate::model::{
     ByteRange, DATA_SCHEMA_VERSION, Envelope, Link, MetadataValue, Severity, ZettelNode,
 };
@@ -202,6 +203,10 @@ impl LanguageServer for Backend {
                         glob_pattern: GlobPattern::String("**/zk.toml".to_owned()),
                         kind: Some(WatchKind::Create | WatchKind::Change | WatchKind::Delete),
                     },
+                    FileSystemWatcher {
+                        glob_pattern: GlobPattern::String(format!("**/{DEFAULT_TEMPLATE_PATH}")),
+                        kind: Some(WatchKind::Create | WatchKind::Change | WatchKind::Delete),
+                    },
                 ],
             };
             let registration = Registration {
@@ -315,14 +320,29 @@ impl LanguageServer for Backend {
                 return;
             }
         };
-        let result = {
+        let schema_file = {
             let state = self.state.read().unwrap_or_else(|error| error.into_inner());
-            if !is_zettel_path(&state.root, &path) {
+            is_schema_path(&state.root, &path)
+        };
+        let result = {
+            let mut state = self
+                .state
+                .write()
+                .unwrap_or_else(|error| error.into_inner());
+            if schema_file {
+                state.provider.reload_schema().map(|_| ())
+            } else if is_zettel_path(&state.root, &path) {
+                state.provider.save_buffer(path).map(|_| ())
+            } else {
                 return;
             }
-            state.provider.save_buffer(path)
         };
         if let Err(error) = result {
+            if schema_file {
+                self.client
+                    .show_message(MessageType::ERROR, error.to_string())
+                    .await;
+            }
             self.log_provider_error("didSave", error).await;
             return;
         }
@@ -374,10 +394,10 @@ impl LanguageServer for Backend {
                     .state
                     .write()
                     .unwrap_or_else(|error| error.into_inner());
-                if path == state.root.join("zk.toml") {
-                    state.provider.reload_manifest().map(|_| ())
+                if is_schema_path(&state.root, &path) {
+                    state.provider.reload_schema().map(|_| ())
                 } else if is_zettel_path(&state.root, &path) {
-                    state.provider.refresh_disk(path).map(|_| ())
+                    state.provider.refresh_disk(&path).map(|_| ())
                 } else {
                     continue;
                 }
@@ -385,6 +405,15 @@ impl LanguageServer for Backend {
             if let Err(error) = result {
                 if matches!(error, ProviderError::NoncanonicalPath(_)) {
                     continue;
+                }
+                let schema_file = {
+                    let state = self.state.read().unwrap_or_else(|error| error.into_inner());
+                    is_schema_path(&state.root, &path)
+                };
+                if schema_file {
+                    self.client
+                        .show_message(MessageType::ERROR, error.to_string())
+                        .await;
                 }
                 self.log_provider_error("didChangeWatchedFiles", error)
                     .await;
@@ -849,6 +878,10 @@ fn position_to_offset(text: &str, position: Position, encoding: PositionEncoding
         }
     };
     Some(line_start + relative)
+}
+
+fn is_schema_path(root: &Path, path: &Path) -> bool {
+    path == root.join("zk.toml") || path == root.join(DEFAULT_TEMPLATE_PATH)
 }
 
 fn is_zettel_path(root: &Path, path: &Path) -> bool {

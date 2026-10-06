@@ -1,12 +1,12 @@
 # LSP JSON contract
 
-Status: implemented in zk 0.2.0 with ZK protocol 2 and data schema 2. See the [version matrix](README.md#status).
+Status: implemented in zk 0.3.0 with ZK protocol 2 and data schema 2. See the [version matrix](README.md#status).
 
 This document defines the editor-neutral companion server launched by `zk lsp`. It uses [LSP 3.17](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) over JSON-RPC 2.0. Standard requests and notifications retain their LSP shapes. Only ZK archive-query results use the shared archive-data envelope.
 
 ## Transport, archive, and lifecycle
 
-The transport is standard input/output with LSP `Content-Length` framing. stdout must contain protocol messages only, never CLI path output, progress prose, or logs. Startup failure is a process error on stderr, not an initialization response from a functioning session. Runtime operational errors may be reported through `window/logMessage` or a JSON-RPC error response.
+The transport is standard input/output with LSP `Content-Length` framing. stdout must contain protocol messages only, never CLI path output, progress prose, or logs. Startup failure is a process error on stderr, not an initialization response from a functioning session. Runtime operational errors may be reported through `window/logMessage` or a JSON-RPC error response. Failed saved-schema reloads also send `window/showMessage` with error severity.
 
 One process owns one archive and one live provider session. `--archive PATH` or working-directory discovery selects the archive before initialization. `rootUri` and `workspaceFolders` do not switch it. There is no shared daemon, multi-archive session, CLI session discovery, or live cross-process change stream.
 
@@ -59,11 +59,13 @@ The server selects UTF-8 positions when offered through `general.positionEncodin
 
 Only full replacements are supported; clients must not send ranged incremental changes. If multiple full replacements occur in one change notification, the last text is authoritative. A canonical unsaved document absent from disk creates a session-only node. Disk updates and delayed results must not replace open overlays. A failed source read or close is logged and must not discard the retained source state.
 
-When the client advertises dynamic watched-file registration, the server registers create/change/delete events for `**/zettel/*.typ` and `**/zk.toml` through `client/registerCapability`. Registration IDs are opaque. Clients without this capability must arrange equivalent `workspace/didChangeWatchedFiles` notifications themselves.
+When the client advertises dynamic watched-file registration, the server registers create/change/delete events for `**/zettel/*.typ`, `**/zk.toml`, and `**/templates/zettel.typ` through `client/registerCapability`. Registration IDs are opaque. Clients without this capability must arrange equivalent `workspace/didChangeWatchedFiles` notifications themselves.
 
-Only events for the selected archive root matter. Note events refresh closed notes and cannot overwrite overlays. Saved root-manifest events reload extraction rules. A successful rule change re-extracts all closed notes and retained open sources in one coherent graph revision, preserves document versions, and invalidates older prepared results. A template-only manifest change does not change graph semantics. Invalid configuration or failed reads preserve the last valid rules and graph and log an error.
+Only events for the selected archive root matter. Note events refresh closed notes and cannot overwrite overlays. Saved manifest and schema-template events reload the schema; `textDocument/didSave` for either file also reloads it. A successful rule change re-extracts all closed notes and retained open sources in one coherent graph revision, preserves document versions, and invalidates older prepared results. Changes to starter values, prose, or formatting that leave compiled rules unchanged do not change the graph revision.
 
-Unsaved manifest text is not a configuration overlay. The server does not watch library dictionaries or template changes to derive metadata or completion. Clients cannot assume a saved-file edit is visible before a corresponding notification has been processed.
+A missing template is created with the minimal core, as defined by the [CLI contract](cli.md#template-availability-and-errors). Invalid templates, invalid manifests, and failed reads preserve the last valid rules and graph. Failed reloads send both an error log message and a visible error message; the server continues serving its retained view rather than pretending the reload succeeded. Invalid templates at startup fail the process before an LSP session begins.
+
+Unsaved manifest and template text are not schema overlays. Ordinary template-buffer language intelligence belongs to Tinymist; only saved files change tracking. Library dictionaries do not determine metadata or completion. Clients cannot assume a saved-file edit is visible before a corresponding notification has been processed.
 
 ## Archive-query commands
 
@@ -127,9 +129,9 @@ The server uses open source for open-document positions. Closed-document positio
 
 ## Diagnostic notifications
 
-The server publishes standard `textDocument/publishDiagnostics` for open canonical notes after accepted source updates, relevant disk changes, or manifest-rule reloads. Target creation/removal may change diagnostics in other open notes. Closed-file archive-wide inspection remains a CLI operation.
+The server publishes standard `textDocument/publishDiagnostics` for open canonical notes after accepted source updates, relevant disk changes, or schema reloads. Target creation/removal may change diagnostics in other open notes. Closed-file archive-wide inspection remains a CLI operation.
 
-Each publication replaces the previous diagnostics for its URI and carries the currently accepted open-document version. Closing a document clears its published diagnostics without a version. The same document version can receive different diagnostics after another note or the manifest changes; clients must not assume equal versions imply identical diagnostics.
+Each publication replaces the previous diagnostics for its URI and carries the currently accepted open-document version. Closing a document clears its published diagnostics without a version. The same document version can receive different diagnostics after another note or the schema changes; clients must not assume equal versions imply identical diagnostics.
 
 The standard diagnostic properties are:
 

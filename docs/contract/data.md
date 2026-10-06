@@ -1,6 +1,6 @@
 # Shared data schema 2
 
-Status: implemented in zk 0.2.0. See the [version matrix](README.md#status).
+Status: implemented in zk 0.3.0. See the [version matrix](README.md#status).
 
 This schema defines archive JSON values shared by the [CLI](cli.md) and [LSP archive-query commands](lsp.md#archive-query-commands). Standard LSP messages retain their standard types and are not wrapped in archive envelopes.
 
@@ -78,7 +78,7 @@ A node has these required properties:
 
 A canonical filename creates a node even when its contents are malformed. A title may be recovered despite a heading-label mismatch; identity still comes from the filename and the mismatch is diagnosed. Missing or ambiguous titles are `null`.
 
-Metadata field names are case-sensitive, nonempty strings independent of source identifier spellings. They are not an enumeration of reserved engine fields. `abstract`, `keywords`, and `category` are initializer defaults, not privileged node properties. Names inside `metadata` do not replace core node properties.
+Metadata field names are case-sensitive, nonempty strings independent of source identifier spellings. They are not an enumeration of reserved engine fields. `abstract`, `keywords`, and `category` are optional template examples, not built-in or privileged node properties. Names inside `metadata` do not replace core node properties.
 
 Every declared field appears in each node's metadata map. A field absent from a note, malformed, or repeated is `null`. Malformed or repeated declarations additionally produce diagnostics naming that field; ordinary absence does not. An unconfigured field is not emitted. With no metadata declarations, every node has `metadata: {}`.
 

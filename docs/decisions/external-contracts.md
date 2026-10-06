@@ -2,6 +2,8 @@
 
 Status: accepted and implemented in zk 0.2.0, archive format 2, data schema 2, and ZK protocol 2
 
+The generic data/schema and protocol decisions remain current. The format-2 manifest declarations and initializer seed rules below are historical, superseded by [Template-declared metadata](template-schema.md), implemented in zk 0.3.0 with archive format 3.
+
 ## Decision
 
 Maintain the external CLI and LSP contracts under [docs/contract](../contract/README.md). The two transports share one [data schema](../contract/data.md). These documents define versioned behavior and types; current implementation status remains in [System](../SYSTEM.md), and cross-slice design remains in [Design](../DESIGN.md).

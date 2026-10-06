@@ -137,9 +137,9 @@ impl Provider {
         Ok(provider)
     }
 
-    /// Reload saved extraction rules atomically, preserving all open sources and versions.
+    /// Reload the saved manifest and template atomically, preserving all open sources and versions.
     /// A failed reload leaves the previous graph and rules intact.
-    pub fn reload_manifest(&mut self) -> Result<bool, ProviderError> {
+    pub fn reload_schema(&mut self) -> Result<bool, ProviderError> {
         let archive = Archive::open(&self.archive_root)?;
         let metadata = archive.metadata_contract();
         if metadata == &self.metadata {
@@ -925,11 +925,7 @@ mod tests {
         assert_eq!(value["schema_version"], 2);
         assert_eq!(value["data"]["revision"], 1);
         assert_eq!(value["data"]["nodes"][0]["id"], "2603231410");
-        assert!(
-            value["data"]["nodes"][0]["metadata"]
-                .get("abstract")
-                .is_some()
-        );
+        assert_eq!(value["data"]["nodes"][0]["metadata"], serde_json::json!({}));
         assert!(value["data"]["nodes"][0].get("generation").is_none());
         assert!(value["data"]["links"].is_array());
         assert!(value["data"]["diagnostics"].is_array());

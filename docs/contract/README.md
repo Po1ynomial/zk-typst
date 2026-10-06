@@ -8,16 +8,16 @@ These documents define the external interfaces owned by `zk`:
 
 ## Status
 
-These contracts are implemented in the 0.2.0 development executable. [System](../SYSTEM.md) describes flows and limitations; [Design](../DESIGN.md) describes the shared design. The rationale is recorded in [Extensible metadata and external contracts](../decisions/external-contracts.md).
+These contracts are implemented in the 0.3.0 development executable. [System](../SYSTEM.md) describes flows and limitations; [Design](../DESIGN.md) describes the shared design. The rationale is recorded in [Template-declared metadata](../decisions/template-schema.md) and [Extensible metadata and external contracts](../decisions/external-contracts.md).
 
 | Contract | Implemented version | Scope |
 | --- | --- | --- |
-| Executable | 0.2.0 | Development release before deployment |
-| Archive format | 2 | Explicit user-owned metadata definitions without hidden field defaults |
+| Executable | 0.3.0 | Development release before deployment |
+| Archive format | 3 | A regular Typst template declares tracked fields through comments |
 | Public data schema | 2 | Shared envelopes and generic typed metadata |
 | ZK editor protocol | 2 | Independent `dataSchemaVersion: 2` discovery |
 
-Archive format 2 is still being finalized before deployment. Changing its development implementation now is intentional; it is not a promise to redefine a deployed archive version later. There is no automatic migration or schema-1 downgrade.
+Archive format 3 intentionally replaces the undeployed format 2. There is no automatic migration or schema-1 downgrade. Public data schema 2 and ZK protocol 2 remain unchanged because the source declaration authority changed, not the retrieved values or request semantics.
 
 ## Authority and scope
 

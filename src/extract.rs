@@ -400,12 +400,10 @@ fn error(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Manifest;
+    use crate::template::Template;
 
     fn contract(source: &str) -> MetadataContract {
-        let manifest: Manifest = toml::from_str(source).unwrap();
-        manifest.validate().unwrap();
-        manifest.metadata
+        Template::parse(source.to_owned()).unwrap().metadata
     }
 
     fn extract(id: &str, source: &str) -> ExtractedNode {
@@ -413,7 +411,7 @@ mod tests {
             id,
             &format!("zettel/{id}.typ"),
             source,
-            &contract(crate::templates::MANIFEST),
+            &contract(crate::templates::DESCRIPTIVE_TEMPLATE),
         )
     }
 
@@ -548,22 +546,17 @@ More prose.
     #[test]
     fn arbitrary_fields_and_forms_preserve_types_and_core_identity() {
         let rules = contract(
-            r#"format = 2
-[metadata.summary]
-form = "content-call"
-name = "summary"
-[metadata.tags]
-form = "string-array-call"
-name = "tags"
-[metadata.topic]
-form = "field-access"
-name = "group"
-[metadata.title]
-form = "string-arguments-call"
-name = "custom-title"
-[metadata.review]
-form = "content-call"
-name = "review"
+            r#"= Title <new>
+// @zk-field "summary" kind=markup
+#summary[]
+// @zk-field "tags" kind=string-list
+#tags(())
+// @zk-field "topic" kind=string
+#group.coding
+// @zk-field "title" kind=string-list
+#custom-title()
+// @zk-field "review" kind=markup
+#review[]
 "#,
         );
         let source = "= Core title <2603231410>\n#summary[café *content*]\n#tags((\"two\", \"one\", \"two\"))\n#group.coding\n#custom-title(\"auxiliary\")\n#abstract[Not metadata]\n";
@@ -649,8 +642,7 @@ name = "review"
 
     #[test]
     fn array_forms_require_one_literal_string_array() {
-        let rules =
-            contract("format = 2\n[metadata.tags]\nform = 'string-array-call'\nname = 'tags'");
+        let rules = contract("= Title <new>\n// @zk-field \"tags\" kind=string-list\n#tags(())");
         for call in [
             "#tags((computed,))",
             "#tags((..values))",

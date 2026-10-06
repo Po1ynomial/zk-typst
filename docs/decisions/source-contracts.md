@@ -4,6 +4,8 @@ Status: implemented development contract, partially superseded by an accepted ta
 
 This document records the initial 0.2.0/archive-format-2 implementation. Its fixed metadata slots, hidden runtime defaults, and schema-1/protocol-1 interface choices are superseded by [Extensible metadata and external contracts](external-contracts.md) and the authoritative [external contracts](../contract/README.md). That replacement is implemented in zk 0.2.0 with data schema 2 and ZK protocol 2. The fixed-field/default and version-1 payload descriptions below remain historical. Relaxed placement, bounded source parsing, user-owned templates, overlay precedence, and the Tinymist boundary remain in force.
 
+Archive format 3 subsequently moves declaration authority into a regular Typst template. See [Template-declared metadata](template-schema.md) for the current source contract and missing-template policy.
+
 ## Decision
 
 Archive metadata is defined by a small configurable set of direct top-level Typst source forms. `zk.toml` owns the extraction contract. The shared provider applies it to CLI saved state and LSP open-buffer overlays without evaluating Typst.

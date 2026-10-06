@@ -37,9 +37,10 @@ The design adapts the workflow described in the introduction to the Zettelkasten
 
 ## Design status
 
-The archive, provider, CLI, and language server are implemented as described in [System](../SYSTEM.md). Release 0.2.0 uses archive format 2, configurable metadata matching, relaxed declaration layout, user-owned note templates, and an archive-only companion language server. [Configurable source contracts](source-contracts.md) records that development implementation and links the superseded format-1 choices. The implemented [extensible-metadata decision](external-contracts.md) and authoritative [external contracts](../contract/README.md) define generic fields, data schema 2, and ZK protocol 2 without hidden runtime field defaults. [Supplementary Git initialization](git-lifecycle.md) is accepted but unimplemented. Format migration is deferred and has no command yet. See [Version-one architecture](v1-architecture.md) and [Repository boundaries](repository-boundaries.md) for the ownership decisions.
+The archive, provider, CLI, and language server are implemented as described in [System](../SYSTEM.md). Release 0.3.0 uses archive format 3: a regular Typst template declares tracked fields through comments, initialization supplies only the stable core, and saved schema changes reload atomically. [Template-declared metadata](template-schema.md) records the current decision. [Extensible metadata](external-contracts.md) and the authoritative [external contracts](../contract/README.md) define generic fields, data schema 2, and ZK protocol 2. Earlier source-contract decisions remain historical. [Supplementary Git initialization](git-lifecycle.md) is accepted but unimplemented. Format migration has no command yet. See [Version-one architecture](v1-architecture.md) and [Repository boundaries](repository-boundaries.md) for ownership decisions.
 
 - [External CLI, LSP, and shared data contracts](../contract/README.md)
+- [Template-declared metadata](template-schema.md)
 - [Extensible metadata and external contracts](external-contracts.md)
 - [Configurable source contracts and user-owned templates](source-contracts.md)
 - [Archive](archive.md)
