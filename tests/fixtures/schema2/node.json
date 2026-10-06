@@ -1,0 +1,25 @@
+{
+  "schema_version": 2,
+  "data": {
+    "id": "2603231410",
+    "path": "zettel/2603231410.typ",
+    "title": {
+      "source": "A note",
+      "text": "A note",
+      "range": {"start": 2, "end": 8}
+    },
+    "metadata": {
+      "summary": {
+        "kind": "markup",
+        "value": {
+          "source": "Summary.",
+          "text": "Summary.",
+          "range": {"start": 31, "end": 39}
+        }
+      },
+      "tags": {"kind": "string-list", "value": ["one", "two"]},
+      "topic": {"kind": "string", "value": "coding"},
+      "review": null
+    }
+  }
+}

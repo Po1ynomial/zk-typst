@@ -1,5 +1,9 @@
 # CLI
 
+Status: superseded in part
+
+The standard-template creation and strict metadata-validation policies below are superseded by [Configurable source contracts](source-contracts.md). The command interface and other responsibilities remain in force. The authoritative [CLI contract](../contract/cli.md) specifies the implemented schema-2 interface with envelopes and generic metadata. The raw-output descriptions below record the earlier interface.
+
 ## Packaging
 
 One executable named `zk` provides all archive operations as subcommands:

@@ -7,7 +7,8 @@ Durable project knowledge is maintained under `docs/`.
 - `docs/PROJECT.md`: background data of the project: current goals, no-goals, scope, constraints, success conditions.
 - `docs/DESIGN.md`: current cross-slice behavioral or technical design. Create when multiple slices need a shared target.
 - `docs/SYSTEM.md`: current implemented capabilities, entry points, flows, inspection commands, checks, and limitations. Create when existing documentation does not provide this guide.
-- `docs/decisions/XX-slug.md`: durable records of settled choices that a future agent could reopen, contradict, or misunderstand.
+- `docs/contract/`: authoritative external CLI and LSP contracts with shared data definitions. State their version and implementation status; link them from guides rather than duplicating wire schemas.
+- `docs/decisions/slug.md`: durable records of settled choices that a future agent could reopen, contradict, or misunderstand.
 - `docs/research/slug.md`: durable findings and evidence that are costly, external, uncertain, or likely to be reused. For example `compare-tesseract-and-cloud.md`
 - `spikes/XX-slug/`: curated spike artifacts, often with one off code.
 

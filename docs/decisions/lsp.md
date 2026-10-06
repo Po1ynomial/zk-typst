@@ -1,6 +1,6 @@
 # Language server
 
-Status: accepted
+Status: accepted, with category completion and the diagnostic boundary superseded by [Configurable source contracts](source-contracts.md). Category completion is now disabled, generic syntax diagnostics are not published, and saved manifests are watched for extraction-rule reloads. The protocol example below records the original feature set. The authoritative [LSP JSON contract](../contract/lsp.md) now specifies the implemented protocol-2 interface with shared schema-2 archive values.
 
 ## Decision
 

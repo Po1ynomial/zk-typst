@@ -1,4 +1,20 @@
-pub const MANIFEST: &str = "format = 1\n";
+pub const MANIFEST: &str = r#"format = 2
+
+[new]
+template = "templates/zettel.typ.tpl"
+
+[metadata.abstract]
+form = "content-call"
+name = "abstract"
+
+[metadata.keywords]
+form = "string-arguments-call"
+name = "keywords"
+
+[metadata.category]
+form = "field-access"
+name = "category"
+"#;
 
 pub struct AgentSkill {
     pub name: &'static str,
@@ -48,12 +64,10 @@ pub const LIBRARY: &str = r#"#let is-zettel-id(target) = {
 )
 "#;
 
-pub fn zettel(id: &str) -> String {
-    format!(
-        r#"#import "../lib/zettel.typ": zettel, abstract, keywords, category
+pub const ZETTEL: &str = r#"#import "../lib/zettel.typ": zettel, abstract, keywords, category
 #show: zettel
 
-= Untitled <{id}>
+= Untitled <{{id}}>
 
 #abstract[]
 
@@ -61,6 +75,4 @@ pub fn zettel(id: &str) -> String {
 
 #category.thoughts
 
-"#
-    )
-}
+"#;

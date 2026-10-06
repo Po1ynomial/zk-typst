@@ -1,0 +1,13 @@
+{
+  "schema_version": 2,
+  "data": [
+    {
+      "path": "zettel/2603231410.typ",
+      "code": "metadata.invalid_shape",
+      "severity": "error",
+      "message": "metadata must contain only positional string literals",
+      "range": {"start": 22, "end": 36},
+      "field": "tags"
+    }
+  ]
+}

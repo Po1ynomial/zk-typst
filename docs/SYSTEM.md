@@ -1,21 +1,25 @@
 # System
 
+This guide describes implemented behavior. The [CLI contract](contract/cli.md), [LSP JSON contract](contract/lsp.md), and [shared data schema 2](contract/data.md) define the interfaces implemented by zk 0.2.0. Metadata is a map of user-declared fields, initialized with explicit seed rules and without hidden runtime field defaults. CLI and LSP archive queries use schema-2 envelopes, and the server advertises ZK protocol 2 with independent data-schema discovery. See the [version matrix](contract/README.md#status) and [decision](decisions/external-contracts.md).
+
 ## Implemented capabilities
 
-The repository builds one Rust executable named `zk`.
+The repository builds one Rust executable named `zk`, currently version 0.2.0.
 
 ### Archive authoring
 
-`zk init [PATH]` creates the version-one archive layout without overwriting an existing manifest or canonical path:
+`zk init [PATH]` creates an archive-format-2 layout without overwriting an existing manifest, note directory, library, or default template:
 
 ```text
 zk.toml
 zettel/
 lib/
   zettel.typ
+templates/
+  zettel.typ.tpl
 ```
 
-The default path is the current directory. The generated manifest declares `format = 1`. The bundled Typst library renders the fixed metadata forms and intercepts ten-digit references. Initialization does not invoke Git, stage files, or create a commit.
+The default path is the current directory. The generated manifest declares `format = 2`, `[new] template = "templates/zettel.typ.tpl"`, and explicit initial rules for abstract, keywords, and category. The bundled Typst library renders the default metadata forms and intercepts ten-digit references. The library and template immediately become user-owned. Initialization does not invoke Git, stage files, or create a commit. Only the manifest and `zettel/` are required for inspecting an existing archive; the presentation library is not an extraction dependency.
 
 `zk init --agent-skills [PATH]` also installs the complete bundled skill set under `.agents/skills/`. The current set contains `.agents/skills/zettelkasten/SKILL.md`, which documents the writing method, source contract, query workflow, whole-file lifecycle commands, and archive checks. Ordinary initialization does not create `.agents/`.
 
@@ -23,29 +27,54 @@ Skill installation is best-effort. An existing same-name skill remains untouched
 
 Commands that require an existing archive accept the global `--archive PATH` option. An explicit path resolves relative to the process working directory, must itself be a valid archive root, and takes precedence over current-directory discovery. Without the option, commands walk upward to the nearest `zk.toml`. `zk init [PATH]` rejects `--archive`.
 
-`zk new` creates a Zettel under `zettel/` using the current local minute as its `YYMMDDHHmm` ID. If that path exists, allocation advances one minute at a time. The command writes the required metadata template and prints the archive-relative path.
+`zk new` creates a Zettel under `zettel/` using the current local minute as its `YYMMDDHHmm` ID. If that path exists, allocation advances one minute at a time. It reads the configured archive-local UTF-8 template, replaces every literal `{{id}}`, preserves all other bytes, and prints the archive-relative path. The rendered title and recognized metadata are validated before creation; Typst compilation and imports are not checked. Missing templates, absent ID markers, and invalid rendered metadata fail without creating a note. Template paths must stay beneath the archive root, including through symlinks. Relative Typst imports are written for the destination Zettel's location.
+
+### Metadata source configuration
+
+Initialization writes the following metadata rules explicitly. They are user-owned seeds, not runtime defaults. A field declaration requires both `form` and `name`; any nonempty field name can select any supported form. Removing a declaration disables its extraction. A missing or empty metadata table produces `metadata: {}` for every node.
+
+```toml
+[metadata.abstract]
+form = "content-call"
+name = "abstract"
+
+[metadata.keywords]
+form = "string-arguments-call"
+name = "keywords"
+
+[metadata.category]
+form = "field-access"
+name = "category"
+
+[new]
+template = "templates/zettel.typ.tpl"
+```
+
+The provider recognizes direct top-level declarations anywhere in a note, in any order, ignoring unrelated imports, styles, show rules, and prose. One level-one title heading with a matching ID label is required. Every configured metadata field is optional and may occur at most once; duplicates and malformed recognized declarations are errors. `content-call` produces a markup value from one literal content block with arbitrary Typst inside it. `string-arguments-call` produces an authored string list from positional string literals. `string-array-call` produces the same kind from one literal array, such as `#tags(("one", "two"))`. `field-access` produces a string containing its member name without validating a presentation dictionary. Field names do not imply engine roles.
+
+Names must be direct Typst identifiers. They do not imply binding resolution, aliases, or recognition of nested or generated metadata. Invalid settings, unsupported forms, empty field names, overlapping call selectors, and overlapping field-access selectors fail configuration loading. Changing a map key changes the retrieved field name; changing its selector changes which source is read. Neither operation rewrites the template or library. The complete source and creation contract is in the [CLI contract](contract/cli.md#initialization-and-source-declarations).
 
 ### Disk-backed provider
 
 `zk graph --format json` loads saved canonical `zettel/ID.typ` files and writes a complete JSON snapshot. Noncanonical entries under `zettel/` produce archive diagnostics and do not enter the graph.
 
-The provider parses files concurrently with `typst-syntax` 0.15.1. It extracts the restricted direct metadata forms without evaluating Typst. Title and abstract values contain exact inner source, deterministic text projection, and half-open UTF-8 byte ranges. Malformed fields remain absent and produce diagnostics.
+The provider parses files concurrently with `typst-syntax` 0.15.1. It extracts the configured direct metadata forms without evaluating Typst. Titles and markup metadata contain exact inner source, deterministic text projection, and half-open UTF-8 byte ranges. The public node retains a generic metadata map with `kind`/`value` entries. Every configured field is present; absent, malformed, or repeated declarations have a `null` value, with diagnostics for the latter two. Unconfigured fields are not emitted. Authored empty markup and string-list values remain non-null. Source generations remain internal and are not serialized.
 
 Literal ten-digit Typst references become directed links. The provider groups repeated occurrences by source-target pair, preserves every authored byte range, and records whether the target resolves. References in raw text, strings, and comments do not become links.
 
 The retained graph interns IDs as `u32` indexes and keeps incoming and outgoing adjacency lists. Parsed source and syntax trees are discarded after extraction.
 
-Provider schema 1 contains `schema_version`, `revision`, `nodes`, `links`, and `diagnostics`. Nodes sort by ID, links by source and target, and diagnostics by path and range. A new disk-backed provider starts at revision 1, so revisions are not durable archive identifiers.
+A shared schema-2 envelope contains `schema_version` and `data`. Graph `data` contains `revision`, `nodes`, `links`, and `diagnostics`; targeted results contain their node or result array directly under `data`. Nodes sort by ID, links by source and target, and diagnostics by path, range, code, field, and message. A new disk-backed provider starts at revision 1, so revisions are not durable archive identifiers. The shared [data contract](contract/data.md) defines all values, ordering, and range meanings.
 
 ### Integrity and shell operations
 
-`zk check` prints diagnostics and exits with status 1 when any error exists. Warnings do not fail the command. `zk check --format json` emits the same diagnostic array used in graph snapshots.
+`zk check` prints diagnostics and exits with status 1 when any error exists. Warnings do not fail the command. `zk check --format json` wraps the same diagnostic array used in graph snapshots in a schema-2 envelope. A completed check may return this envelope with exit status 1; fatal inspection failures need not return JSON.
 
 Checks cover:
 
 - noncanonical entries under `zettel/`;
 - Typst syntax errors;
-- missing, malformed, repeated, or misplaced metadata;
+- missing or repeated titles and malformed or repeated recognized metadata;
 - filename and heading-label mismatches;
 - dangling reference occurrences.
 
@@ -58,7 +87,7 @@ zk query backlinks <ID>
 zk query search <QUERY>
 ```
 
-Metadata search compares the query case-insensitively with IDs, projected titles, projected abstracts, keywords, and categories. It returns every matching node in provider ID order without an implicit cap. The language server uses the same matcher.
+Metadata search compares the query case-insensitively with IDs, projected titles, and all textual configured values: markup projections, strings, and string-list items. It does not search field names, unrecognized calls, or body-only content. It returns every matching node in provider ID order without an implicit cap. The language server uses the same matcher.
 
 `zk remove <ID>` deletes a canonical Zettel only when it has no incoming references. A blocked removal leaves the file untouched and prints every incoming source path and byte range.
 
@@ -72,18 +101,20 @@ An open overlay replaces the disk node and outgoing links in one graph revision.
 
 Every scheduled source state receives a generation. Prepared disk updates apply only when their generation remains current. Stale document versions, stale generations, saves, and ignored disk events do not increment the graph revision.
 
+`reload_manifest` reads saved configuration and re-extracts disk notes and open sources together when metadata rules change. It preserves open source text and document versions, invalidates all older prepared results, and publishes one graph revision. Invalid configuration or failed reads leave the previous graph and rules intact. A template-only manifest change does not change graph semantics or its revision.
+
 ### Language server
 
 `zk lsp` runs over standard input and output. It loads either an explicit `--archive PATH` or the archive discovered above its working directory, then owns one live provider session.
 
-The server advertises full-text synchronization. Open, change, save, and close notifications map to the provider overlay lifecycle. When the client supports dynamic registration, the server registers `**/zettel/*.typ` for create, change, and delete events. Watched-file notifications refresh closed Zettel and cannot replace open overlays.
+The server advertises full-text synchronization. Open, change, save, and close notifications map to the provider overlay lifecycle. When the client supports dynamic registration, the server registers `**/zettel/*.typ` and `**/zk.toml` for create, change, and delete events. Watched-file notifications refresh closed Zettel or reload saved metadata rules and cannot replace open overlays. Failed manifest reloads log an error while retaining the last valid state. Unsaved manifest text is not a configuration overlay. Ordinary library buffers and document requests outside canonical Zettel paths are ignored.
 
 The server prefers UTF-8 positions when offered and otherwise uses UTF-16. It converts retained byte ranges with open-buffer text or a saved-text read for each closed-file location.
 
-Initialization advertises ZK protocol version 1 under `capabilities.experimental.zk` with these boolean features:
+Initialization advertises ZK protocol version 2 and `dataSchemaVersion: 2` under `capabilities.experimental.zk` with these boolean features. All are true except `categoryCompletion`:
 
 - `archiveQueries`
-- `categoryCompletion`
+- `categoryCompletion`, currently false
 - `referenceCompletion`
 - `referenceTitleDecorations`
 
@@ -91,24 +122,29 @@ The editor protocol version is independent of the executable version, archive fo
 
 Implemented requests:
 
-- `textDocument/completion` supports numeric ID prefixes and case-insensitive title queries after `@`, plus direct category keys from the saved library.
-- `textDocument/hover` returns target metadata or a missing-target message.
+- `textDocument/completion` supports numeric ID prefixes and case-insensitive title queries after `@`. It advertises only `@` as a trigger and leaves dictionary-member completion to Tinymist.
+- `textDocument/hover` returns title and ID followed by all non-null metadata in UTF-8 lexical field-name order, or a missing-target message. Completion depends on core title and ID only; no metadata field is privileged for documentation.
 - `textDocument/definition` opens the target, including unsaved session nodes.
 - `textDocument/references` returns incoming authored occurrences and optionally the declaration.
 - `workspace/symbol` searches live metadata.
-- `workspace/executeCommand` supports `zk.queryNode`, `zk.links`, and `zk.backlinks`.
+- `workspace/executeCommand` supports `zk.queryNode`, `zk.links`, and `zk.backlinks` with exactly one string ID and schema-2 result envelopes. Invalid parameters or missing nodes return `-32602`; unsupported commands return `-32601` before node lookup. Workspace symbols do not infer grouping from category or any other field.
 
-The server pushes diagnostics for open Zettel after accepted source updates and watched-file changes. Resolving or creating a target republishes affected open-buffer diagnostics.
+The server pushes archive-specific diagnostics for open Zettel after accepted source updates and watched-file changes. It filters generic Typst syntax diagnostics, leaving those and ordinary bindings, imports, types, and compilation to Tinymist. Resolving or creating a target republishes affected open-buffer diagnostics. Generic syntax diagnostics remain in graph snapshots and `zk check`. Configured-field errors use stable codes `metadata.invalid_shape` or `metadata.duplicate` and a separate field identifier. LSP diagnostic `data` carries the schema version, archive-relative path, field or null, and authored UTF-8 byte range or null independently of negotiated standard positions. Normal shutdown/exit returns process status 0; exit without shutdown returns 1.
+
+## External interface documentation
+
+The authoritative implemented interface definitions are maintained under [docs/contract](contract/README.md). [Design](DESIGN.md) links those definitions rather than maintaining competing wire schemas. Schema-2 fixtures under `tests/fixtures/schema2/` are shared by CLI and LSP tests; the normal integration suites cover generic fields, removal/reload semantics, stable diagnostics, versioned results, request errors, and process lifecycle.
 
 ## Code entry points
 
 - `src/main.rs` defines the CLI, JSON output, and process exit behavior.
 - `src/archive.rs` implements initialization, discovery, validation, creation, skill installation, and removal.
-- `src/extract.rs` extracts metadata, references, ranges, and syntax diagnostics.
+- `src/config.rs` defines and validates the manifest, bounded metadata matchers, and template-path settings.
+- `src/extract.rs` extracts configured metadata, references, ranges, and syntax diagnostics.
 - `src/model.rs` defines public node, link, diagnostic, and snapshot shapes.
 - `src/provider.rs` loads files, owns graph state and overlays, rejects stale updates, and produces snapshots.
 - `src/lsp.rs` implements protocol capabilities, synchronization, diagnostics, navigation, search, and archive commands.
-- `src/templates.rs` contains the canonical templates and bundled skill registry.
+- `src/templates.rs` contains the initial manifest, user-owned template and library defaults, and bundled skill registry.
 - `skills/zettelkasten/SKILL.md` is the inspectable bundled skill source.
 - `tests/cli.rs` covers authoring, graph output and authored byte ranges, integrity checks, queries, skills, search, and removal blocked by all incoming occurrences, including those in malformed notes.
 - `tests/provider.rs` exercises the complete overlay lifecycle through coherent revisions and a final graph snapshot. Unit tests in `src/provider.rs` cover individual transitions and stale-update rejection.
@@ -166,7 +202,7 @@ just test --test provider
 just test --test lsp
 ```
 
-All suites run under `cargo test` without shell scripts or `jq`. The LSP suite covers protocol capabilities, ID and title completion, category completion from the saved library, navigation, diagnostics, live metadata search and queries, unsaved state, stale versions, watched files, registration, and shutdown. Requests have receive timeouts, shutdown has an exit timeout, and the client reaps the server on failures.
+All suites run under `cargo test` without shell scripts or `jq`. The LSP suite covers protocol-2 and data-schema discovery, shared schema-2 fixtures, strict query errors, ID and title completion, navigation, archive-only diagnostic data, generic metadata hover, atomic saved-manifest reloads and field removal, live search and queries, unsaved state, stale versions, watched files, registration, Tinymist responsibility boundaries, and shutdown/exit statuses. Requests have receive timeouts, shutdown has an exit timeout, and the client reaps the server on failures.
 
 ## Continuous integration
 
@@ -182,10 +218,10 @@ The server loads its initial graph synchronously before serving requests. Client
 
 Closed-file LSP location conversions read saved text for each location. They do not group file reads or refresh graph state automatically. A saved-file change without a watched-file notification can leave graph ranges stale relative to the text used for conversion.
 
-The executable accepts archive format 1 only and has no migration command. Supplementary Git initialization is accepted but unimplemented; see [Git lifecycle](decisions/git-lifecycle.md).
+The executable accepts archive format 2 only and has no migration command or format-1 compatibility layer. This is an intentional pre-deployment breaking change. Supplementary Git initialization is accepted but unimplemented; see [Git lifecycle](decisions/git-lifecycle.md).
 
 Queries emit JSON only. CLI locations use UTF-8 byte ranges. Removal does not edit incoming references. Metadata search has no result cap, so broad queries can produce large arrays.
 
-The initial category dictionary contains `thoughts`, `physics`, and `coding`. Category completion reads only the saved library. Category and keyword policy remain deferred.
+The initial presentation dictionary contains `thoughts`, `physics`, and `coding`. Tinymist owns ordinary dictionary-member completion; `zk lsp` does not inspect the library for categories. Category and keyword vocabulary policy remain deferred.
 
-Installed agent skills are snapshots from archive creation and do not receive automatic updates. The independently maintained `zk.nvim` client is outside this repository.
+Source matching supports direct identifiers and the documented finite AST forms only. It does not follow imported declarations, aliases, arbitrary qualified calls, computed values, or nested metadata. Template expansion substitutes only `{{id}}`; it does not evaluate code or infer presentation from the matching rules.

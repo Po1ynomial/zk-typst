@@ -1,5 +1,9 @@
 # Implementation and migration
 
+Status: superseded in part
+
+The format-1 source requirements and archive version below are superseded by [Configurable source contracts](source-contracts.md). The provider architecture, parser ownership, and version separation remain in force.
+
 ## Provider architecture
 
 The core is a reusable live archive provider. Each consumer instantiates its own provider session.

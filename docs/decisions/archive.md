@@ -1,5 +1,9 @@
 # Archive
 
+Status: superseded in part
+
+The format-1 fixed manifest, source contracts, and presentation-layout requirements below are superseded by [Configurable source contracts](source-contracts.md). The archive boundary and canonical note layout remain in force.
+
 ## Boundary
 
 One directory is one archive, one ID namespace, and one (possibly not connected) link graph.

@@ -3,16 +3,17 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime};
-use serde::Deserialize;
 use thiserror::Error;
 
+use crate::config::{ARCHIVE_FORMAT, DEFAULT_TEMPLATE_PATH, Manifest, MetadataContract};
+use crate::extract::extract;
+use crate::model::Severity;
 use crate::templates;
 
 const MANIFEST_NAME: &str = "zk.toml";
 const ZETTEL_DIR: &str = "zettel";
 const LIBRARY_PATH: &str = "lib/zettel.typ";
 const AGENT_SKILLS_DIR: &str = ".agents/skills";
-const ARCHIVE_FORMAT: u32 = 1;
 
 #[derive(Debug, Error)]
 pub enum ArchiveError {
@@ -33,6 +34,12 @@ pub enum ArchiveError {
 
     #[error("archive format {found} is not supported; expected {ARCHIVE_FORMAT}")]
     UnsupportedFormat { found: u32 },
+
+    #[error("invalid archive configuration {path}: {message}")]
+    InvalidConfig { path: PathBuf, message: String },
+
+    #[error("invalid Zettel template {path}: {message}")]
+    InvalidTemplate { path: PathBuf, message: String },
 
     #[error("archive is missing required {kind}: {path}")]
     MissingLayout { kind: &'static str, path: PathBuf },
@@ -63,15 +70,10 @@ pub enum AgentSkillInstallWarning {
     },
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Manifest {
-    format: u32,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Archive {
     root: PathBuf,
+    manifest: Manifest,
 }
 
 impl Archive {
@@ -81,9 +83,10 @@ impl Archive {
         if !manifest.is_file() {
             return Err(ArchiveError::NotFound(root.to_path_buf()));
         }
-        validate_manifest(&manifest)?;
+        let manifest = read_manifest(&manifest)?;
         let archive = Self {
             root: root.to_path_buf(),
+            manifest,
         };
         archive.validate_layout()?;
         Ok(archive)
@@ -100,10 +103,7 @@ impl Archive {
         for candidate in directory.ancestors() {
             let manifest = candidate.join(MANIFEST_NAME);
             if manifest.is_file() {
-                validate_manifest(&manifest)?;
-                return Ok(Self {
-                    root: candidate.to_path_buf(),
-                });
+                return Self::open(candidate);
             }
         }
 
@@ -121,7 +121,8 @@ impl Archive {
 
         let zettel_dir = root.join(ZETTEL_DIR);
         let library = root.join(LIBRARY_PATH);
-        for path in [&zettel_dir, &library] {
+        let template = root.join(DEFAULT_TEMPLATE_PATH);
+        for path in [&zettel_dir, &library, &template] {
             if path.exists() {
                 return Err(ArchiveError::PathConflict(path.to_path_buf()));
             }
@@ -129,17 +130,22 @@ impl Archive {
 
         fs::create_dir(&zettel_dir).map_err(|source| io_error(&zettel_dir, source))?;
         let library_dir = library.parent().expect("library path has a parent");
-        fs::create_dir(library_dir).map_err(|source| io_error(library_dir, source))?;
+        fs::create_dir_all(library_dir).map_err(|source| io_error(library_dir, source))?;
+        let template_dir = template.parent().expect("template path has a parent");
+        fs::create_dir_all(template_dir).map_err(|source| io_error(template_dir, source))?;
         write_new(&manifest, templates::MANIFEST)?;
         write_new(&library, templates::LIBRARY)?;
+        write_new(&template, templates::ZETTEL)?;
 
-        Ok(Self {
-            root: root.to_path_buf(),
-        })
+        Self::open(root)
     }
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    pub fn metadata_contract(&self) -> &MetadataContract {
+        &self.manifest.metadata
     }
 
     pub fn validate_layout(&self) -> Result<(), ArchiveError> {
@@ -148,14 +154,6 @@ impl Archive {
             return Err(ArchiveError::MissingLayout {
                 kind: "Zettel directory",
                 path: zettel_dir,
-            });
-        }
-
-        let library = self.root.join(LIBRARY_PATH);
-        if !library.is_file() {
-            return Err(ArchiveError::MissingLayout {
-                kind: "Typst library",
-                path: library,
             });
         }
 
@@ -184,15 +182,56 @@ impl Archive {
 
     fn create_zettel_at(&self, start: NaiveDateTime) -> Result<PathBuf, ArchiveError> {
         self.validate_layout()?;
+        let template_path = self.root.join(&self.manifest.new.template);
+        let resolved =
+            fs::canonicalize(&template_path).map_err(|source| io_error(&template_path, source))?;
+        let root = fs::canonicalize(&self.root).map_err(|source| io_error(&self.root, source))?;
+        if !resolved.starts_with(&root) {
+            return Err(ArchiveError::InvalidTemplate {
+                path: template_path,
+                message: "template must resolve beneath the archive root".to_owned(),
+            });
+        }
+        let template =
+            fs::read_to_string(&resolved).map_err(|source| io_error(&template_path, source))?;
+        if !template.contains("{{id}}") {
+            return Err(ArchiveError::InvalidTemplate {
+                path: template_path,
+                message: "template must contain the {{id}} placeholder".to_owned(),
+            });
+        }
         let mut candidate = start;
         let century = candidate.year().div_euclid(100);
 
         loop {
             let id = candidate.format("%y%m%d%H%M").to_string();
             let path = self.root.join(ZETTEL_DIR).join(format!("{id}.typ"));
+            let rendered = template.replace("{{id}}", &id);
+            if u32::try_from(rendered.len()).is_err() {
+                return Err(ArchiveError::InvalidTemplate {
+                    path: template_path,
+                    message: "rendered template exceeds the 4 GiB byte-range limit".to_owned(),
+                });
+            }
+            let extracted = extract(&id, "", &rendered, self.metadata_contract());
+            let errors: Vec<_> = extracted
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| {
+                    diagnostic.severity == Severity::Error
+                        && diagnostic.code.starts_with("metadata.")
+                })
+                .map(|diagnostic| diagnostic.message.as_str())
+                .collect();
+            if !errors.is_empty() {
+                return Err(ArchiveError::InvalidTemplate {
+                    path: template_path,
+                    message: errors.join("; "),
+                });
+            }
             match OpenOptions::new().write(true).create_new(true).open(&path) {
                 Ok(mut file) => {
-                    file.write_all(templates::zettel(&id).as_bytes())
+                    file.write_all(rendered.as_bytes())
                         .map_err(|source| io_error(&path, source))?;
                     return Ok(path);
                 }
@@ -270,7 +309,7 @@ pub fn is_zettel_id(id: &str) -> bool {
         .is_some()
 }
 
-fn validate_manifest(path: &Path) -> Result<(), ArchiveError> {
+fn read_manifest(path: &Path) -> Result<Manifest, ArchiveError> {
     let source = fs::read_to_string(path).map_err(|source| io_error(path, source))?;
     let manifest: Manifest =
         toml::from_str(&source).map_err(|source| ArchiveError::InvalidManifest {
@@ -284,7 +323,13 @@ fn validate_manifest(path: &Path) -> Result<(), ArchiveError> {
         });
     }
 
-    Ok(())
+    manifest
+        .validate()
+        .map_err(|message| ArchiveError::InvalidConfig {
+            path: path.to_path_buf(),
+            message,
+        })?;
+    Ok(manifest)
 }
 
 fn write_new(path: &Path, contents: &str) -> Result<(), ArchiveError> {
@@ -330,7 +375,11 @@ mod tests {
         assert_eq!(archive.root(), root);
         assert_eq!(
             fs::read_to_string(root.join("zk.toml")).unwrap(),
-            "format = 1\n"
+            templates::MANIFEST
+        );
+        assert_eq!(
+            fs::read_to_string(root.join(DEFAULT_TEMPLATE_PATH)).unwrap(),
+            templates::ZETTEL
         );
         assert!(root.join("zettel").is_dir());
         assert_eq!(
@@ -409,7 +458,7 @@ mod tests {
     #[test]
     fn opening_an_archive_validates_its_layout() {
         let temporary = tempdir().unwrap();
-        fs::write(temporary.path().join("zk.toml"), "format = 1\n").unwrap();
+        fs::write(temporary.path().join("zk.toml"), "format = 2\n").unwrap();
 
         assert!(matches!(
             Archive::open(temporary.path()).unwrap_err(),
@@ -420,14 +469,36 @@ mod tests {
     #[test]
     fn rejects_an_unsupported_archive_format() {
         let temporary = tempdir().unwrap();
-        fs::write(temporary.path().join("zk.toml"), "format = 2\n").unwrap();
+        fs::write(temporary.path().join("zk.toml"), "format = 1\n").unwrap();
 
         let error = Archive::discover(temporary.path()).unwrap_err();
 
         assert!(matches!(
             error,
-            ArchiveError::UnsupportedFormat { found: 2 }
+            ArchiveError::UnsupportedFormat { found: 1 }
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_templates_that_escape_through_a_symlink() {
+        let temporary = tempdir().unwrap();
+        let external = tempdir().unwrap();
+        let archive = Archive::init(temporary.path()).unwrap();
+        let target = external.path().join("external.tpl");
+        fs::write(&target, "= Title <{{id}}>\n").unwrap();
+        let template = archive.root().join(DEFAULT_TEMPLATE_PATH);
+        fs::remove_file(&template).unwrap();
+        std::os::unix::fs::symlink(&target, &template).unwrap();
+        assert!(matches!(
+            archive.create_zettel(),
+            Err(ArchiveError::InvalidTemplate { .. })
+        ));
+        assert_eq!(
+            fs::read_dir(archive.root().join("zettel")).unwrap().count(),
+            0
+        );
+        assert_eq!(fs::read_to_string(target).unwrap(), "= Title <{{id}}>\n");
     }
 
     #[test]

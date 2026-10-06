@@ -1,11 +1,10 @@
-use std::collections::BTreeSet;
-
-use typst_syntax::ast::{self, Arg, AstNode, Expr, ImportItem, Imports};
+use typst_syntax::ast::{self, Arg, ArrayItem, AstNode, Expr};
 use typst_syntax::{LinkedNode, Source, SyntaxKind, SyntaxNode, parse};
 
-use crate::model::{ByteRange, Diagnostic, MarkupValue, Severity, ZettelNode};
-
-const REQUIRED_IMPORTS: [&str; 4] = ["zettel", "abstract", "keywords", "category"];
+use crate::config::{MetadataContract, MetadataForm, MetadataRule};
+use crate::model::{
+    ByteRange, Diagnostic, MarkupValue, MetadataValue, Severity, ZettelNode, compare_diagnostics,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ReferenceOccurrence {
@@ -20,9 +19,14 @@ pub(crate) struct ExtractedNode {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-pub(crate) fn extract(id: &str, path: &str, source: &str) -> ExtractedNode {
+pub(crate) fn extract(
+    id: &str,
+    path: &str,
+    source: &str,
+    contract: &MetadataContract,
+) -> ExtractedNode {
     let root = parse(source);
-    extract_root(id, path, source, &root, 1)
+    extract_root(id, path, source, &root, 1, contract)
 }
 
 pub(crate) fn extract_source(
@@ -30,8 +34,9 @@ pub(crate) fn extract_source(
     path: &str,
     source: &Source,
     generation: u64,
+    contract: &MetadataContract,
 ) -> ExtractedNode {
-    extract_root(id, path, source.text(), source.root(), generation)
+    extract_root(id, path, source.text(), source.root(), generation, contract)
 }
 
 fn extract_root(
@@ -40,26 +45,15 @@ fn extract_root(
     source: &str,
     root: &SyntaxNode,
     generation: u64,
+    contract: &MetadataContract,
 ) -> ExtractedNode {
     assert!(
         u32::try_from(source.len()).is_ok(),
         "provider rejects oversized sources before extraction"
     );
-
     let linked_root = LinkedNode::new(root);
     let top_level: Vec<_> = linked_root.children().collect();
     let mut diagnostics = syntax_diagnostics(path, root, &linked_root);
-
-    let imports: Vec<_> = top_level
-        .iter()
-        .filter(|node| is_zettel_import(node))
-        .cloned()
-        .collect();
-    let show_rules: Vec<_> = top_level
-        .iter()
-        .filter(|node| is_zettel_show_rule(node))
-        .cloned()
-        .collect();
     let headings: Vec<_> = top_level
         .iter()
         .filter(|node| {
@@ -68,182 +62,97 @@ fn extract_root(
         })
         .cloned()
         .collect();
-    let abstracts: Vec<_> = top_level
-        .iter()
-        .filter(|node| is_named_call(node, "abstract"))
-        .cloned()
-        .collect();
-    let keywords: Vec<_> = top_level
-        .iter()
-        .filter(|node| is_named_call(node, "keywords"))
-        .cloned()
-        .collect();
-    let categories: Vec<_> = top_level
-        .iter()
-        .filter(|node| is_category_access(node))
-        .cloned()
-        .collect();
-
-    require_one(
-        path,
-        "metadata.import",
-        "required Zettel import",
-        &imports,
-        &mut diagnostics,
-    );
-    require_one(
-        path,
-        "metadata.show",
-        "`#show: zettel` rule",
-        &show_rules,
-        &mut diagnostics,
-    );
-    require_one(
-        path,
-        "metadata.title",
-        "level-one title heading",
-        &headings,
-        &mut diagnostics,
-    );
-    require_one(
-        path,
-        "metadata.abstract",
-        "abstract",
-        &abstracts,
-        &mut diagnostics,
-    );
-    require_one(
-        path,
-        "metadata.keywords",
-        "keyword list",
-        &keywords,
-        &mut diagnostics,
-    );
-    require_one(
-        path,
-        "metadata.category",
-        "category",
-        &categories,
-        &mut diagnostics,
-    );
-
-    if let Some(import) = imports.first()
-        && !valid_import(import)
-    {
+    if headings.is_empty() {
         diagnostics.push(error(
             path,
-            "metadata.import",
-            "the Zettel import must directly import zettel, abstract, keywords, and category",
-            Some(authored_range(import)),
+            "metadata.title",
+            "missing required level-one title heading",
+            None,
         ));
     }
-
+    for duplicate in headings.iter().skip(1) {
+        diagnostics.push(error(
+            path,
+            "metadata.title",
+            "duplicate level-one title heading",
+            Some(authored_range(duplicate)),
+        ));
+    }
     let title = if headings.len() == 1 {
         extract_title(path, id, &headings[0], source, &mut diagnostics)
     } else {
         None
     };
 
-    let abstract_value = if abstracts.len() == 1 {
-        extract_abstract(path, &abstracts[0], source, &mut diagnostics)
-    } else {
-        None
-    };
-
-    let keyword_values = if keywords.len() == 1 {
-        extract_keywords(path, &keywords[0], &mut diagnostics)
-    } else {
-        None
-    };
-
-    let category = if categories.len() == 1 {
-        extract_category(&categories[0])
-    } else {
-        None
-    };
-
-    check_header(
-        path,
-        &top_level,
-        [
-            &imports,
-            &show_rules,
-            &headings,
-            &abstracts,
-            &keywords,
-            &categories,
-        ],
-        &mut diagnostics,
-    );
+    let metadata = contract
+        .0
+        .iter()
+        .map(|(field, rule)| {
+            let declarations: Vec<_> = top_level
+                .iter()
+                .filter(|node| matches_rule(node, rule))
+                .collect();
+            let value = match declarations.as_slice() {
+                [] => None,
+                [node] => match extract_value(node, rule.form, source) {
+                    Ok(value) => Some(value),
+                    Err(message) => {
+                        let mut diagnostic = error(
+                            path,
+                            "metadata.invalid_shape",
+                            message,
+                            Some(authored_range(node)),
+                        );
+                        diagnostic.field = Some(field.clone());
+                        diagnostics.push(diagnostic);
+                        None
+                    }
+                },
+                _ => {
+                    for duplicate in declarations.iter().skip(1) {
+                        let mut diagnostic = error(
+                            path,
+                            "metadata.duplicate",
+                            format!("duplicate metadata field `{field}`"),
+                            Some(authored_range(duplicate)),
+                        );
+                        diagnostic.field = Some(field.clone());
+                        diagnostics.push(diagnostic);
+                    }
+                    None
+                }
+            };
+            (field.clone(), value)
+        })
+        .collect();
 
     let mut references = Vec::new();
     collect_references(&linked_root, &mut references);
-
-    diagnostics.sort_by(|left, right| {
-        left.range
-            .cmp(&right.range)
-            .then_with(|| left.code.cmp(&right.code))
-            .then_with(|| left.message.cmp(&right.message))
-    });
-
+    diagnostics.sort_by(compare_diagnostics);
     ExtractedNode {
         node: ZettelNode {
             id: id.to_owned(),
             path: path.to_owned(),
             generation,
             title,
-            abstract_value,
-            keywords: keyword_values,
-            category,
+            metadata,
         },
         references,
         diagnostics,
     }
 }
 
-fn is_zettel_import(node: &LinkedNode<'_>) -> bool {
-    let Some(import) = node.cast::<ast::ModuleImport>() else {
-        return false;
-    };
-    matches!(import.source(), Expr::Str(value) if value.get() == "../lib/zettel.typ")
-}
-
-fn valid_import(node: &LinkedNode<'_>) -> bool {
-    let import = node.cast::<ast::ModuleImport>().expect("checked import");
-    let Some(Imports::Items(items)) = import.imports() else {
-        return false;
-    };
-    let imported: Option<Vec<_>> = items
-        .iter()
-        .map(|item| match item {
-            ImportItem::Simple(path) => Some(path.name().as_str()),
-            ImportItem::Renamed(_) => None,
-        })
-        .collect();
-    imported.is_some_and(|names| {
-        names.len() == REQUIRED_IMPORTS.len()
-            && names.into_iter().collect::<BTreeSet<_>>()
-                == REQUIRED_IMPORTS.into_iter().collect::<BTreeSet<_>>()
-    })
-}
-
-fn is_zettel_show_rule(node: &LinkedNode<'_>) -> bool {
-    let Some(show) = node.cast::<ast::ShowRule>() else {
-        return false;
-    };
-    show.selector().is_none()
-        && matches!(show.transform(), Expr::Ident(ident) if ident.as_str() == "zettel")
-}
-
-fn is_named_call(node: &LinkedNode<'_>, name: &str) -> bool {
-    node.cast::<ast::FuncCall>()
-        .is_some_and(|call| matches!(call.callee(), Expr::Ident(ident) if ident.as_str() == name))
-}
-
-fn is_category_access(node: &LinkedNode<'_>) -> bool {
-    node.cast::<ast::FieldAccess>().is_some_and(
-        |access| matches!(access.target(), Expr::Ident(ident) if ident.as_str() == "category"),
-    )
+fn matches_rule(node: &LinkedNode<'_>, rule: &MetadataRule) -> bool {
+    match rule.form {
+        MetadataForm::ContentCall
+        | MetadataForm::StringArgumentsCall
+        | MetadataForm::StringArrayCall => node.cast::<ast::FuncCall>().is_some_and(
+            |call| matches!(call.callee(), Expr::Ident(ident) if ident.as_str() == rule.name),
+        ),
+        MetadataForm::FieldAccess => node.cast::<ast::FieldAccess>().is_some_and(
+            |access| matches!(access.target(), Expr::Ident(ident) if ident.as_str() == rule.name),
+        ),
+    }
 }
 
 fn extract_title(
@@ -260,7 +169,6 @@ fn extract_title(
     let label = heading_node
         .next_sibling()
         .filter(|sibling| sibling.kind() == SyntaxKind::Label);
-
     match label {
         Some(node) => {
             let label = node
@@ -284,170 +192,65 @@ fn extract_title(
             Some(authored_range(heading_node)),
         )),
     }
-
     Some(markup_value(&body, source))
 }
 
-fn extract_abstract(
-    path: &str,
-    call_node: &LinkedNode<'_>,
+fn extract_value(
+    node: &LinkedNode<'_>,
+    form: MetadataForm,
     source: &str,
-    diagnostics: &mut Vec<Diagnostic>,
-) -> Option<MarkupValue> {
-    let call = call_node
-        .cast::<ast::FuncCall>()
-        .expect("checked function call");
-    let mut args = call.args().items();
-    let block = match (args.next(), args.next()) {
-        (Some(Arg::Pos(Expr::ContentBlock(block))), None) => block,
-        _ => {
-            diagnostics.push(error(
-                path,
-                "metadata.abstract",
-                "abstract must be one direct content-block argument",
-                Some(authored_range(call_node)),
-            ));
-            return None;
+) -> Result<MetadataValue, &'static str> {
+    if !node.get().errors_and_warnings().0.is_empty() {
+        return Err("metadata declaration is incomplete or malformed");
+    }
+    if form == MetadataForm::FieldAccess {
+        let access = node
+            .cast::<ast::FieldAccess>()
+            .expect("matched field access");
+        return Ok(MetadataValue::String(access.field().as_str().to_owned()));
+    }
+    let call = node.cast::<ast::FuncCall>().expect("matched function call");
+    match form {
+        MetadataForm::ContentCall => {
+            let mut args = call.args().items();
+            let block = match (args.next(), args.next()) {
+                (Some(Arg::Pos(Expr::ContentBlock(block))), None) => block,
+                _ => return Err("metadata must contain one literal content-block argument"),
+            };
+            let body_untyped = block.body().to_untyped();
+            let body = descendants(node)
+                .into_iter()
+                .find(|child| std::ptr::eq(child.get(), body_untyped))
+                .expect("linked content body exists");
+            Ok(MetadataValue::Markup(markup_value(&body, source)))
         }
-    };
-
-    let body_untyped = block.body().to_untyped();
-    if contains_block_structure(body_untyped) {
-        diagnostics.push(error(
-            path,
-            "metadata.abstract",
-            "abstract cannot contain headings, lists, terms, or figures",
-            Some(authored_range(call_node)),
-        ));
-        return None;
-    }
-
-    let body = descendants(call_node)
-        .into_iter()
-        .find(|node| std::ptr::eq(node.get(), body_untyped))
-        .expect("linked abstract body exists");
-    Some(markup_value(&body, source))
-}
-
-fn extract_keywords(
-    path: &str,
-    call_node: &LinkedNode<'_>,
-    diagnostics: &mut Vec<Diagnostic>,
-) -> Option<Vec<String>> {
-    let call = call_node
-        .cast::<ast::FuncCall>()
-        .expect("checked function call");
-    let mut values = Vec::new();
-    for item in call.args().items() {
-        match item {
-            Arg::Pos(Expr::Str(value)) => values.push(value.get().to_string()),
-            _ => {
-                diagnostics.push(error(
-                    path,
-                    "metadata.keywords",
-                    "keywords must contain only positional string literals",
-                    Some(authored_range(call_node)),
-                ));
-                return None;
-            }
+        MetadataForm::StringArgumentsCall => call
+            .args()
+            .items()
+            .map(|item| match item {
+                Arg::Pos(Expr::Str(value)) => Some(value.get().to_string()),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()
+            .map(MetadataValue::StringList)
+            .ok_or("metadata must contain only positional string literals"),
+        MetadataForm::StringArrayCall => {
+            let mut args = call.args().items();
+            let values = match (args.next(), args.next()) {
+                (Some(Arg::Pos(Expr::Array(array))), None) => array
+                    .items()
+                    .map(|item| match item {
+                        ArrayItem::Pos(Expr::Str(value)) => Some(value.get().to_string()),
+                        _ => None,
+                    })
+                    .collect::<Option<Vec<_>>>(),
+                _ => None,
+            };
+            values
+                .map(MetadataValue::StringList)
+                .ok_or("metadata must contain one literal string-array argument")
         }
-    }
-    Some(values)
-}
-
-fn extract_category(node: &LinkedNode<'_>) -> Option<String> {
-    let access = node.cast::<ast::FieldAccess>()?;
-    Some(access.field().as_str().to_owned())
-}
-
-fn contains_block_structure(node: &typst_syntax::SyntaxNode) -> bool {
-    if matches!(
-        node.kind(),
-        SyntaxKind::Heading | SyntaxKind::ListItem | SyntaxKind::EnumItem | SyntaxKind::TermItem
-    ) {
-        return true;
-    }
-    if node.cast::<ast::FuncCall>().is_some_and(
-        |call| matches!(call.callee(), Expr::Ident(ident) if ident.as_str() == "figure"),
-    ) {
-        return true;
-    }
-    node.children().any(contains_block_structure)
-}
-
-fn check_header(
-    path: &str,
-    top_level: &[LinkedNode<'_>],
-    fields: [&Vec<LinkedNode<'_>>; 6],
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    let selected: Vec<_> = fields
-        .iter()
-        .filter_map(|nodes| nodes.first().cloned())
-        .collect();
-    for pair in selected.windows(2) {
-        if pair[0].offset() > pair[1].offset() {
-            diagnostics.push(error(
-                path,
-                "metadata.header_order",
-                "metadata header fields are out of order",
-                Some(authored_range(&pair[1])),
-            ));
-        }
-    }
-
-    let (Some(first), Some(last)) = (selected.first(), selected.last()) else {
-        return;
-    };
-    let mut allowed: BTreeSet<_> = fields
-        .iter()
-        .flat_map(|nodes| nodes.iter().map(LinkedNode::offset))
-        .collect();
-    for heading in fields[2] {
-        if let Some(label) = heading
-            .next_sibling()
-            .filter(|node| node.kind() == SyntaxKind::Label)
-        {
-            allowed.insert(label.offset());
-        }
-    }
-
-    for node in top_level {
-        if node.offset() < first.offset() || node.offset() >= last.range().end {
-            continue;
-        }
-        if node.kind().is_trivia()
-            || node.kind() == SyntaxKind::Hash
-            || allowed.contains(&node.offset())
-        {
-            continue;
-        }
-        diagnostics.push(error(
-            path,
-            "metadata.header_content",
-            "only direct metadata constructs are allowed in the metadata header",
-            Some(range(node)),
-        ));
-    }
-}
-
-fn require_one(
-    path: &str,
-    code: &str,
-    field: &str,
-    nodes: &[LinkedNode<'_>],
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    if nodes.is_empty() {
-        diagnostics.push(error(path, code, format!("missing required {field}"), None));
-    }
-    for duplicate in nodes.iter().skip(1) {
-        diagnostics.push(error(
-            path,
-            code,
-            format!("duplicate {field}"),
-            Some(authored_range(duplicate)),
-        ));
+        MetadataForm::FieldAccess => unreachable!("field access handled above"),
     }
 }
 
@@ -490,6 +293,7 @@ fn syntax_diagnostics(
             severity: Severity::Error,
             message: diagnostic.message.to_string(),
             range: error_ranges.get(index).copied(),
+            field: None,
         })
         .collect::<Vec<_>>();
     diagnostics.extend(warnings.into_iter().map(|diagnostic| Diagnostic {
@@ -498,6 +302,7 @@ fn syntax_diagnostics(
         severity: Severity::Warning,
         message: diagnostic.message.to_string(),
         range: None,
+        field: None,
     }));
     diagnostics
 }
@@ -588,12 +393,29 @@ fn error(
         severity: Severity::Error,
         message: message.into(),
         range,
+        field: None,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Manifest;
+
+    fn contract(source: &str) -> MetadataContract {
+        let manifest: Manifest = toml::from_str(source).unwrap();
+        manifest.validate().unwrap();
+        manifest.metadata
+    }
+
+    fn extract(id: &str, source: &str) -> ExtractedNode {
+        super::extract(
+            id,
+            &format!("zettel/{id}.typ"),
+            source,
+            &contract(crate::templates::MANIFEST),
+        )
+    }
 
     const VALID: &str = r#"#import "../lib/zettel.typ": zettel, abstract, keywords, category
 #show: zettel
@@ -604,11 +426,7 @@ mod tests {
 Repeated *traffic*, @2603220935 and #code.
 ]
 
-#keywords(
-  "networks",
-  "optimization",
-)
-
+#keywords("networks", "optimization")
 #category.thoughts
 
 Body @2603220935 and @9999999999. `@1111111111`
@@ -616,28 +434,39 @@ Body @2603220935 and @9999999999. `@1111111111`
 
     #[test]
     fn extracts_rich_metadata_and_literal_reference_ranges() {
-        let extracted = extract("2603231410", "zettel/2603231410.typ", VALID);
-
-        let title = extracted.node.title.unwrap();
+        let extracted = extract("2603231410", VALID);
+        let title = extracted.node.title.as_ref().unwrap();
         assert_eq!(title.source, "Path _efficiency_ $x^2$");
         assert_eq!(title.text, "Path efficiency $x^2$");
         assert_eq!(
             &VALID[title.range.start as usize..title.range.end as usize],
             title.source
         );
-
-        let abstract_value = extracted.node.abstract_value.unwrap();
+        let abstract_value = extracted.node.metadata["abstract"]
+            .as_ref()
+            .unwrap()
+            .as_markup()
+            .unwrap();
         assert_eq!(
             abstract_value.text,
             "Repeated traffic, @2603220935 and #code."
         );
         assert_eq!(
-            extracted.node.keywords,
-            Some(vec!["networks".to_owned(), "optimization".to_owned()])
+            &VALID[abstract_value.range.start as usize..abstract_value.range.end as usize],
+            abstract_value.source
         );
-        assert_eq!(extracted.node.category.as_deref(), Some("thoughts"));
+        assert_eq!(
+            extracted.node.metadata["keywords"],
+            Some(MetadataValue::StringList(vec![
+                "networks".to_owned(),
+                "optimization".to_owned()
+            ]))
+        );
+        assert_eq!(
+            extracted.node.metadata["category"],
+            Some(MetadataValue::String("thoughts".to_owned()))
+        );
         assert!(extracted.diagnostics.is_empty());
-
         let authored: Vec<_> = extracted
             .references
             .iter()
@@ -647,83 +476,266 @@ Body @2603220935 and @9999999999. `@1111111111`
     }
 
     #[test]
-    fn accepts_formatter_ordered_imports() {
-        let source = VALID.replacen(
-            "zettel, abstract, keywords, category",
-            "abstract, category, keywords, zettel",
-            1,
-        );
-        let extracted = extract("2603231410", "zettel/2603231410.typ", &source);
+    fn metadata_is_independent_of_order_and_presentation() {
+        let source = r#"#import "styles.typ": preamble, extra
+#show: preamble
+#keywords("one")
+Some prose before the title.
+#category.coding
+#set text(size: 11pt)
+#abstract[= Rich summary
 
-        assert!(
-            extracted
-                .diagnostics
-                .iter()
-                .all(|diagnostic| diagnostic.code != "metadata.import")
-        );
-    }
-
-    #[test]
-    fn leaves_malformed_fields_absent_and_reports_syntax_errors() {
-        let source = r#"#import "../lib/zettel.typ": zettel, abstract, keywords, category
-#show: zettel
-
-= Broken <wrong>
-
-#abstract[
-- block item
-
-#keywords("valid", computed)
-
-#category.thoughts
+- Item
+#figure[Content]]
+#import "../lib/zettel.typ": *
+= Flexible <2603231410>
+More prose.
 "#;
-        let extracted = extract("2603231410", "zettel/2603231410.typ", source);
-
-        assert!(extracted.node.abstract_value.is_none());
-        assert!(extracted.node.keywords.is_none());
+        let extracted = extract("2603231410", source);
+        assert!(extracted.diagnostics.is_empty());
+        assert_eq!(extracted.node.title.unwrap().text, "Flexible");
         assert!(
-            extracted
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == "syntax.error")
+            extracted.node.metadata["abstract"]
+                .as_ref()
+                .unwrap()
+                .as_markup()
+                .unwrap()
+                .source
+                .contains("#figure")
         );
-        assert!(
-            extracted
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == "metadata.id_mismatch")
+        let reordered = VALID.replace(
+            "zettel, abstract, keywords, category",
+            "abstract, category, keywords, zettel, extra",
+        );
+        assert!(extract("2603231410", &reordered).diagnostics.is_empty());
+    }
+
+    #[test]
+    fn omitted_empty_and_unconfigured_fields_are_distinct() {
+        let minimal = "= Minimal <2603231410>\n";
+        let omitted = extract("2603231410", minimal);
+        assert!(omitted.diagnostics.is_empty());
+        assert_eq!(omitted.node.metadata.len(), 3);
+        assert!(omitted.node.metadata.values().all(Option::is_none));
+        let source = format!("{minimal}#abstract[]\n#keywords()\n");
+        let empty = extract("2603231410", &source);
+        let abstract_value = empty.node.metadata["abstract"]
+            .as_ref()
+            .unwrap()
+            .as_markup()
+            .unwrap();
+        assert_eq!(abstract_value.source, "");
+        assert_eq!(abstract_value.range.start, abstract_value.range.end);
+        assert_eq!(
+            abstract_value.range.start as usize,
+            source.find("[]").unwrap() + 1
+        );
+        assert_eq!(
+            empty.node.metadata["keywords"],
+            Some(MetadataValue::StringList(vec![]))
+        );
+        let unconfigured = super::extract(
+            "2603231410",
+            "zettel/2603231410.typ",
+            VALID,
+            &MetadataContract::default(),
+        );
+        assert!(unconfigured.node.metadata.is_empty());
+        assert!(unconfigured.diagnostics.is_empty());
+        assert_eq!(unconfigured.references.len(), 3);
+    }
+
+    #[test]
+    fn arbitrary_fields_and_forms_preserve_types_and_core_identity() {
+        let rules = contract(
+            r#"format = 2
+[metadata.summary]
+form = "content-call"
+name = "summary"
+[metadata.tags]
+form = "string-array-call"
+name = "tags"
+[metadata.topic]
+form = "field-access"
+name = "group"
+[metadata.title]
+form = "string-arguments-call"
+name = "custom-title"
+[metadata.review]
+form = "content-call"
+name = "review"
+"#,
+        );
+        let source = "= Core title <2603231410>\n#summary[café *content*]\n#tags((\"two\", \"one\", \"two\"))\n#group.coding\n#custom-title(\"auxiliary\")\n#abstract[Not metadata]\n";
+        let extracted = super::extract("2603231410", "zettel/2603231410.typ", source, &rules);
+        assert!(extracted.diagnostics.is_empty());
+        assert_eq!(extracted.node.title.as_ref().unwrap().text, "Core title");
+        assert_eq!(extracted.node.metadata.len(), 5);
+        assert!(!extracted.node.metadata.contains_key("abstract"));
+        assert!(extracted.node.metadata["review"].is_none());
+        let value = extracted.node.metadata["summary"]
+            .as_ref()
+            .unwrap()
+            .as_markup()
+            .unwrap();
+        assert_eq!(value.text, "café content");
+        assert_eq!(
+            &source[value.range.start as usize..value.range.end as usize],
+            value.source
+        );
+        assert_eq!(
+            extracted.node.metadata["tags"],
+            Some(MetadataValue::StringList(vec![
+                "two".to_owned(),
+                "one".to_owned(),
+                "two".to_owned()
+            ]))
+        );
+        assert_eq!(
+            extracted.node.metadata["topic"],
+            Some(MetadataValue::String("coding".to_owned()))
+        );
+        assert_eq!(
+            extracted.node.metadata["title"],
+            Some(MetadataValue::StringList(vec!["auxiliary".to_owned()]))
         );
     }
 
     #[test]
-    fn rejects_computed_keyword_values() {
-        let source = VALID.replace(
-            "  \"networks\",\n  \"optimization\",",
-            "  \"networks\",\n  computed,",
-        );
-        let extracted = extract("2603231410", "zettel/2603231410.typ", &source);
-
-        assert!(extracted.node.keywords.is_none());
-        let diagnostic = extracted
-            .diagnostics
-            .iter()
-            .find(|diagnostic| diagnostic.code == "metadata.keywords")
-            .expect("keyword diagnostic");
-        let range = diagnostic.range.expect("keyword diagnostic range");
-        assert!(source[range.start as usize..range.end as usize].starts_with("#keywords("));
+    fn duplicates_are_errors_without_a_winner_and_use_stable_codes() {
+        let source = "= Title <2603231410>\n#abstract[a]\n#abstract[b]\n#keywords()\n#keywords(\"x\")\n#category.a\n#category.b\n";
+        let extracted = extract("2603231410", source);
+        assert!(extracted.node.metadata.values().all(Option::is_none));
+        assert_eq!(extracted.diagnostics.len(), 3);
+        for field in ["abstract", "keywords", "category"] {
+            let diagnostic = extracted
+                .diagnostics
+                .iter()
+                .find(|value| value.field.as_deref() == Some(field))
+                .unwrap();
+            assert_eq!(diagnostic.code, "metadata.duplicate");
+            assert!(diagnostic.range.is_some());
+        }
     }
 
     #[test]
-    fn rejects_block_structure_inside_an_abstract() {
-        let source = VALID.replace("Repeated *traffic*, @2603220935 and #code.", "- one\n- two");
-        let extracted = extract("2603231410", "zettel/2603231410.typ", &source);
-
-        assert!(extracted.node.abstract_value.is_none());
-        assert!(
-            extracted
+    fn malformed_declarations_have_null_values_and_authored_field_diagnostics() {
+        for call in [
+            "#abstract(computed)",
+            "#abstract[one][two]",
+            "#abstract()",
+            "#keywords(\"valid\", computed)",
+            "#keywords(..values)",
+            "#keywords(named: \"value\")",
+        ] {
+            let field = if call.starts_with("#abstract") {
+                "abstract"
+            } else {
+                "keywords"
+            };
+            let source = format!("= Title <2603231410>\n{call}\n");
+            let extracted = extract("2603231410", &source);
+            assert!(extracted.node.metadata[field].is_none(), "accepted {call}");
+            let diagnostic = extracted
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("cannot contain"))
+                .find(|value| value.code == "metadata.invalid_shape")
+                .unwrap();
+            assert_eq!(diagnostic.field.as_deref(), Some(field));
+            let range = diagnostic.range.unwrap();
+            assert_eq!(&source[range.start as usize..range.end as usize], call);
+        }
+    }
+
+    #[test]
+    fn array_forms_require_one_literal_string_array() {
+        let rules =
+            contract("format = 2\n[metadata.tags]\nform = 'string-array-call'\nname = 'tags'");
+        for call in [
+            "#tags((computed,))",
+            "#tags((..values))",
+            "#tags(\"one\", \"two\")",
+            "#tags(values)",
+            "#tags((\"one\",), extra: 1)",
+        ] {
+            let source = format!("= Title <2603231410>\n{call}\n");
+            let extracted = super::extract("2603231410", "zettel/2603231410.typ", &source, &rules);
+            assert!(extracted.node.metadata["tags"].is_none(), "accepted {call}");
+            assert!(
+                extracted
+                    .diagnostics
+                    .iter()
+                    .any(|value| value.code == "metadata.invalid_shape"
+                        && value.field.as_deref() == Some("tags"))
+            );
+        }
+        let empty = super::extract(
+            "2603231410",
+            "zettel/2603231410.typ",
+            "= Title <2603231410>\n#tags(())",
+            &rules,
         );
+        assert!(empty.diagnostics.is_empty());
+        assert_eq!(
+            empty.node.metadata["tags"],
+            Some(MetadataValue::StringList(vec![]))
+        );
+    }
+
+    #[test]
+    fn nested_generated_raw_and_commented_constructs_do_not_declare_metadata() {
+        let source = r#"= Title <2603231410>
+#let example() = [#abstract[Unused] #keywords("hidden") #category.hidden]
+#block[#abstract[Nested]]
+#if true { keywords("conditional") }
+`#abstract[Raw]`
+// #category.comment
+"#;
+        let extracted = extract("2603231410", source);
+        assert!(extracted.diagnostics.is_empty());
+        assert!(extracted.node.metadata.values().all(Option::is_none));
+    }
+
+    #[test]
+    fn malformed_source_retains_identity_and_recoverable_title() {
+        let source = "= Broken <wrong>\n#abstract[Unclosed\n#keywords(computed)\n";
+        let extracted = extract("2603231410", source);
+        assert_eq!(extracted.node.id, "2603231410");
+        assert_eq!(extracted.node.title.unwrap().text, "Broken");
+        assert!(extracted.node.metadata["abstract"].is_none());
+        for code in [
+            "syntax.error",
+            "metadata.id_mismatch",
+            "metadata.invalid_shape",
+        ] {
+            assert!(
+                extracted.diagnostics.iter().any(|value| value.code == code),
+                "missing {code}"
+            );
+        }
+    }
+
+    #[test]
+    fn incomplete_category_access_does_not_invent_a_member_name() {
+        let extracted = extract("2603231410", "= Title <2603231410>\n#category.");
+        assert!(extracted.node.metadata["category"].is_none());
+    }
+
+    #[test]
+    fn required_title_diagnostics_do_not_claim_a_custom_field() {
+        for source in [
+            "#abstract[]",
+            "= One <2603231410>\n= Two <2603231410>",
+            "= Missing label",
+        ] {
+            let extracted = extract("2603231410", source);
+            assert!(!extracted.diagnostics.is_empty());
+            assert!(
+                extracted
+                    .diagnostics
+                    .iter()
+                    .all(|value| value.field.is_none())
+            );
+        }
     }
 }

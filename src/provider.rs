@@ -7,10 +7,11 @@ use thiserror::Error;
 use typst_syntax::Source;
 
 use crate::archive::{Archive, ArchiveError, is_zettel_id};
+use crate::config::MetadataContract;
 use crate::extract::{ExtractedNode, extract, extract_source};
 use crate::model::{
-    ByteRange, Diagnostic, GraphSnapshot, Link, LinkResolution, PROVIDER_SCHEMA_VERSION, Severity,
-    ZettelNode,
+    ByteRange, Diagnostic, GraphSnapshot, Link, LinkResolution, MAX_JSON_INTEGER, Severity,
+    ZettelNode, compare_diagnostics,
 };
 
 #[derive(Debug, Error)]
@@ -79,6 +80,7 @@ pub enum UpdateOutcome {
 #[derive(Debug, Clone)]
 pub struct Provider {
     archive_root: PathBuf,
+    metadata: MetadataContract,
     revision: u64,
     nodes: Vec<ZettelNode>,
     diagnostics: Vec<Diagnostic>,
@@ -98,16 +100,17 @@ pub struct Provider {
 
 impl Provider {
     pub fn load(archive: &Archive) -> Result<Self, ProviderError> {
-        archive.validate_layout()?;
+        let archive = Archive::open(archive.root())?;
         let discovered = discover_paths(archive.root())?;
         let extracted: Result<Vec<_>, _> = discovered
             .canonical
             .par_iter()
-            .map(|(id, path)| load_zettel(archive.root(), id, path))
+            .map(|(id, path)| load_zettel(archive.root(), id, path, archive.metadata_contract()))
             .collect();
 
         let mut provider = Self {
             archive_root: archive.root().to_path_buf(),
+            metadata: archive.metadata_contract().clone(),
             revision: 1,
             nodes: Vec::new(),
             diagnostics: Vec::new(),
@@ -132,6 +135,72 @@ impl Provider {
         provider.rebuild_all_graph_diagnostics();
         provider.rebuild_diagnostic_list();
         Ok(provider)
+    }
+
+    /// Reload saved extraction rules atomically, preserving all open sources and versions.
+    /// A failed reload leaves the previous graph and rules intact.
+    pub fn reload_manifest(&mut self) -> Result<bool, ProviderError> {
+        let archive = Archive::open(&self.archive_root)?;
+        let metadata = archive.metadata_contract();
+        if metadata == &self.metadata {
+            return Ok(false);
+        }
+        let discovered = discover_paths(&self.archive_root)?;
+        let extracted: Result<Vec<_>, _> = discovered
+            .canonical
+            .par_iter()
+            .filter(|(id, _)| {
+                !self
+                    .id_indices
+                    .get(id)
+                    .is_some_and(|index| self.overlays.contains_key(index))
+            })
+            .map(|(id, path)| load_zettel(&self.archive_root, id, path, metadata))
+            .collect();
+        let mut extracted = extracted?;
+        for (index, overlay) in &self.overlays {
+            let id = &self.ids[*index as usize];
+            extracted.push(extract_source(
+                id,
+                &format!("zettel/{id}.typ"),
+                &overlay.source,
+                overlay.generation,
+                metadata,
+            ));
+        }
+        // All fallible reads finish before changing the live graph.
+        let retained: BTreeSet<_> = extracted
+            .iter()
+            .map(|value| value.node.id.clone())
+            .collect();
+        for value in &extracted {
+            self.intern(&value.node.id);
+        }
+        self.metadata = metadata.clone();
+        self.archive_diagnostics = discovered.diagnostics;
+        // Invalidate every prepared result, including results for absent nodes.
+        for index in 0..self.ids.len() as u32 {
+            let generation = self.schedule(index);
+            if let Some(overlay) = self.overlays.get_mut(&index) {
+                overlay.generation = generation;
+            }
+            if self.present[index as usize] && !retained.contains(&self.ids[index as usize]) {
+                let id = self.ids[index as usize].clone();
+                self.remove_node(index, &id);
+            }
+        }
+        for mut value in extracted {
+            value.node.generation = self.generations[self.id_indices[&value.node.id] as usize];
+            self.install(value);
+        }
+        self.revision = self
+            .revision
+            .checked_add(1)
+            .filter(|revision| *revision <= MAX_JSON_INTEGER)
+            .expect("JSON-safe graph revision exhausted");
+        self.rebuild_all_graph_diagnostics();
+        self.rebuild_diagnostic_list();
+        Ok(true)
     }
 
     pub fn revision(&self) -> u64 {
@@ -202,7 +271,6 @@ impl Provider {
                 .then_with(|| left.target.cmp(&right.target))
         });
         GraphSnapshot {
-            schema_version: PROVIDER_SCHEMA_VERSION,
             revision: self.revision,
             nodes: self.nodes.clone(),
             links,
@@ -237,12 +305,18 @@ impl Provider {
                 &document.relative,
                 &overlay.source,
                 generation,
+                &self.metadata,
             )
         } else {
             let source_text = checked_source(&document.absolute, text)?;
             let source_file = Source::detached(source_text);
-            let extracted =
-                extract_source(&document.id, &document.relative, &source_file, generation);
+            let extracted = extract_source(
+                &document.id,
+                &document.relative,
+                &source_file,
+                generation,
+                &self.metadata,
+            );
             self.overlays.insert(
                 source,
                 Overlay {
@@ -290,6 +364,7 @@ impl Provider {
             &document.relative,
             &overlay.source,
             generation,
+            &self.metadata,
         );
         let affected = self.install(extracted);
         Ok(self.finish_update(generation, affected))
@@ -354,6 +429,7 @@ impl Provider {
                     &document.relative,
                     &source,
                     generation,
+                    &self.metadata,
                 )))
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => PreparedChange::Remove,
@@ -493,7 +569,8 @@ impl Provider {
         self.revision = self
             .revision
             .checked_add(1)
-            .expect("graph revision overflow");
+            .filter(|revision| *revision <= MAX_JSON_INTEGER)
+            .expect("JSON-safe graph revision exhausted");
         for source in affected {
             self.rebuild_graph_diagnostics(source);
         }
@@ -537,6 +614,7 @@ impl Provider {
                         self.ids[link.target as usize]
                     ),
                     range: Some(*span),
+                    field: None,
                 });
             }
         }
@@ -550,12 +628,7 @@ impl Provider {
             diagnostics.extend(self.source_diagnostics[source].iter().cloned());
             diagnostics.extend(self.graph_diagnostics[source].iter().cloned());
         }
-        diagnostics.sort_by(|left, right| {
-            left.path
-                .cmp(&right.path)
-                .then_with(|| left.range.cmp(&right.range))
-                .then_with(|| left.code.cmp(&right.code))
-        });
+        diagnostics.sort_by(compare_diagnostics);
         self.diagnostics = diagnostics;
     }
 
@@ -639,6 +712,7 @@ fn discover_paths(root: &Path) -> Result<DiscoveredPaths, ProviderError> {
                 severity: Severity::Error,
                 message: "only regular Zettel files are allowed in `zettel/`".to_owned(),
                 range: None,
+                field: None,
             });
             continue;
         }
@@ -655,6 +729,7 @@ fn discover_paths(root: &Path) -> Result<DiscoveredPaths, ProviderError> {
                 severity: Severity::Error,
                 message: "Zettel filename must match `YYMMDDHHmm.typ`".to_owned(),
                 range: None,
+                field: None,
             }),
         }
     }
@@ -665,10 +740,20 @@ fn discover_paths(root: &Path) -> Result<DiscoveredPaths, ProviderError> {
     })
 }
 
-fn load_zettel(root: &Path, id: &str, path: &Path) -> Result<ExtractedNode, ProviderError> {
+fn load_zettel(
+    root: &Path,
+    id: &str,
+    path: &Path,
+    contract: &MetadataContract,
+) -> Result<ExtractedNode, ProviderError> {
     let source = fs::read_to_string(path).map_err(|source| io_error(path, source))?;
     let source = checked_source(path, source)?;
-    Ok(extract(id, &archive_relative(root, path), &source))
+    Ok(extract(
+        id,
+        &archive_relative(root, path),
+        &source,
+        contract,
+    ))
 }
 
 fn checked_source(path: &Path, source: String) -> Result<String, ProviderError> {
@@ -691,25 +776,17 @@ fn archive_relative(root: &Path, path: &Path) -> String {
 }
 
 fn node_matches(node: &ZettelNode, query: &str) -> bool {
-    if query.is_empty() || node.id.contains(query) {
-        return true;
-    }
-    node.title
-        .as_ref()
-        .is_some_and(|title| title.text.to_lowercase().contains(query))
+    query.is_empty()
+        || node.id.contains(query)
         || node
-            .abstract_value
+            .title
             .as_ref()
-            .is_some_and(|abstract_value| abstract_value.text.to_lowercase().contains(query))
-        || node.keywords.as_ref().is_some_and(|keywords| {
-            keywords
-                .iter()
-                .any(|keyword| keyword.to_lowercase().contains(query))
-        })
+            .is_some_and(|title| title.text.to_lowercase().contains(query))
         || node
-            .category
-            .as_ref()
-            .is_some_and(|category| category.to_lowercase().contains(query))
+            .metadata
+            .values()
+            .flatten()
+            .any(|value| value.matches_lowercase_query(query))
 }
 
 fn insert_sorted(values: &mut Vec<u32>, value: u32) {
@@ -843,14 +920,19 @@ mod tests {
         write_zettel(archive.root(), "2603231410", "Note", "body");
         let provider = Provider::load(&archive).unwrap();
 
-        let value = serde_json::to_value(provider.snapshot()).unwrap();
+        let value = serde_json::to_value(crate::model::Envelope::new(provider.snapshot())).unwrap();
 
-        assert_eq!(value["schema_version"], 1);
-        assert_eq!(value["revision"], 1);
-        assert_eq!(value["nodes"][0]["id"], "2603231410");
-        assert!(value["nodes"][0].get("abstract").is_some());
-        assert!(value["links"].is_array());
-        assert!(value["diagnostics"].is_array());
+        assert_eq!(value["schema_version"], 2);
+        assert_eq!(value["data"]["revision"], 1);
+        assert_eq!(value["data"]["nodes"][0]["id"], "2603231410");
+        assert!(
+            value["data"]["nodes"][0]["metadata"]
+                .get("abstract")
+                .is_some()
+        );
+        assert!(value["data"]["nodes"][0].get("generation").is_none());
+        assert!(value["data"]["links"].is_array());
+        assert!(value["data"]["diagnostics"].is_array());
     }
 
     #[test]

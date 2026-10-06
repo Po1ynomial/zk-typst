@@ -2,7 +2,7 @@
 
 ## What this is
 
-This project implements a plain-source Zettelkasten engine. The source language is Typst. On disk, one archive is a flat directory of linked Zettel with fixed metadata and reference conventions.
+This project implements a plain-source Zettelkasten engine. The source language is Typst. On disk, one archive is a flat directory of linked Zettel with configurable bounded metadata source forms and fixed identity and reference conventions.
 
 One Rust executable provides the command-line interface, reusable provider, JSON graph snapshots, and companion language server:
 
@@ -37,8 +37,11 @@ The design adapts the workflow described in the introduction to the Zettelkasten
 
 ## Design status
 
-The archive, provider, CLI, and language server are implemented as described in [System](../SYSTEM.md). [Supplementary Git initialization](git-lifecycle.md) is accepted but unimplemented. Format migration is deferred and has no command yet. See [Version-one architecture](v1-architecture.md) and [Repository boundaries](repository-boundaries.md) for the ownership decisions.
+The archive, provider, CLI, and language server are implemented as described in [System](../SYSTEM.md). Release 0.2.0 uses archive format 2, configurable metadata matching, relaxed declaration layout, user-owned note templates, and an archive-only companion language server. [Configurable source contracts](source-contracts.md) records that development implementation and links the superseded format-1 choices. The implemented [extensible-metadata decision](external-contracts.md) and authoritative [external contracts](../contract/README.md) define generic fields, data schema 2, and ZK protocol 2 without hidden runtime field defaults. [Supplementary Git initialization](git-lifecycle.md) is accepted but unimplemented. Format migration is deferred and has no command yet. See [Version-one architecture](v1-architecture.md) and [Repository boundaries](repository-boundaries.md) for the ownership decisions.
 
+- [External CLI, LSP, and shared data contracts](../contract/README.md)
+- [Extensible metadata and external contracts](external-contracts.md)
+- [Configurable source contracts and user-owned templates](source-contracts.md)
 - [Archive](archive.md)
 - [Zettel](zettel.md)
 - [Metadata](metadata.md)

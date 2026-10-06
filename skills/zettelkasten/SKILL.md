@@ -44,10 +44,10 @@ Search metadata with a specific term:
 zk query search "path efficiency"
 ```
 
-Search matches IDs, titles, abstracts, keywords, and categories without regard to case. It returns every complete matching node and has no result limit. Broad or empty searches can produce large JSON output. Narrow the term or filter the result before putting it into agent context:
+Search matches IDs, titles, and all textual metadata declared in `zk.toml` without regard to case. It does not search field names or arbitrary body text. It returns every matching node and has no result limit. Archive JSON results use `{schema_version: 2, data: ...}`; nodes have a generic `metadata` map with typed `kind`/`value` entries rather than fixed abstract, keyword, or category properties. Broad or empty searches can produce large JSON output. Narrow the term or filter the result before putting it into agent context:
 
 ```sh
-zk query search "path" | jq 'map({id, title: .title.text, category})'
+zk query search "path" | jq '.data | map({id, title: .title.text})'
 ```
 
 Inspect a known Zettel and its relations:
@@ -68,7 +68,7 @@ Create through `zk` so it allocates the timestamp ID:
 zk new
 ```
 
-The command writes the standard template and prints its archive-relative path. Edit that file through the available editor workflow. Do not manually choose or change its ID.
+The command reads the archive-local template selected by `new.template` in `zk.toml`, substitutes `{{id}}`, checks the rendered metadata, and prints the new archive-relative path. The default is `templates/zettel.typ.tpl`. Edit the new note through the available editor workflow. Do not manually choose or change its ID or rewrite the user-owned template or library unless the task calls for it. A missing or invalid template is an error, not a reason to create a file manually.
 
 Remove through the guarded command:
 
@@ -80,7 +80,9 @@ Removal fails while incoming references exist. Do not bypass that check by delet
 
 ## Source contract
 
-A Zettel lives at `zettel/YYMMDDHHmm.typ`. Its filename is its identity. Keep the direct top-level header in this order:
+A Zettel lives at `zettel/YYMMDDHHmm.typ`. Its filename is its identity. Read `zk.toml` before editing metadata. Archive format 2 declares arbitrary metadata fields under `metadata.<field-name>`, each with a supported `form` and direct identifier `name`. Initialization writes abstract, keywords, and category definitions explicitly. Those are user-owned seeds, not hidden runtime defaults: removing a definition disables extraction, and omitted or empty metadata configuration extracts no extra fields.
+
+With the initializer's explicit metadata definitions, the following is a conventional example, not an enforced header order:
 
 ```typst
 #import "../lib/zettel.typ": zettel, abstract, keywords, category
@@ -99,7 +101,11 @@ Short summary.
 #category.thoughts
 ```
 
-The heading label must equal the filename stem. The body after the category is unrestricted Typst. A literal ten-digit `@ID` creates a directed Zettel link. Generated references, strings, raw blocks, and comments do not create links.
+Exactly one direct level-one title heading is required, and its label must equal the filename stem. Each configured metadata field may be omitted, but may be declared at most once. Unconfigured fields are not emitted. Configured fields absent from a note are `null`; malformed or repeated declarations are also `null` with a diagnostic naming the field. Authored empty values remain distinct. They may appear in any order and anywhere at the direct top level, among prose, imports, and styling. Imports and show rules are user presentation choices. The abstract's content block and the rest of the note may contain unrestricted Typst.
+
+`content-call` retrieves one literal content block as markup; `string-arguments-call` retrieves positional string literals as a string list; `field-access` retrieves a literal member name as a string. A `string-array-call` rule retrieves one literal string-array argument, such as `#tags(("one", "two"))`. Any configured field can use any supported form. Field names have no implicit engine role. Do not substitute computed values, spreads, aliases, imported declarations, or nested calls for the configured direct source forms. `zk` does not evaluate Typst to retrieve metadata.
+
+A literal ten-digit `@ID` creates a directed Zettel link. Generated references, strings, raw blocks, and comments do not create links. `zk lsp` handles archive relations and metadata; Tinymist handles ordinary Typst language features, compilation, and dictionary-member completion.
 
 After changes, run:
 

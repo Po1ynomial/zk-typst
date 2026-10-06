@@ -8,6 +8,15 @@ fn zk() -> Command {
     Command::new(env!("CARGO_BIN_EXE_zk"))
 }
 
+fn json_data(bytes: &[u8]) -> serde_json::Value {
+    let envelope: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    assert_eq!(envelope["schema_version"], 2);
+    envelope
+        .get("data")
+        .expect("schema-2 data envelope")
+        .clone()
+}
+
 fn initialize(root: &std::path::Path) {
     let output = zk()
         .args(["init", root.to_str().unwrap()])
@@ -193,6 +202,203 @@ fn skill_installation_io_failure_does_not_fail_archive_creation() {
 }
 
 #[test]
+fn schema_two_fixtures_match_cli_results() {
+    let temporary = tempdir().unwrap();
+    let root = temporary.path();
+    initialize(root);
+    let empty = zk()
+        .current_dir(root)
+        .args(["graph", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(empty.status.success());
+    let actual: serde_json::Value = serde_json::from_slice(&empty.stdout).unwrap();
+    let expected: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/schema2/empty-graph.json")).unwrap();
+    assert_eq!(actual, expected);
+    fs::write(
+        root.join("zk.toml"),
+        include_str!("fixtures/schema2/zk.toml"),
+    )
+    .unwrap();
+    fs::write(
+        root.join("zettel/2603231410.typ"),
+        include_str!("fixtures/schema2/note.typ"),
+    )
+    .unwrap();
+    let node = zk()
+        .current_dir(root)
+        .args(["query", "node", "2603231410"])
+        .output()
+        .unwrap();
+    assert!(node.status.success());
+    let actual: serde_json::Value = serde_json::from_slice(&node.stdout).unwrap();
+    let expected: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/schema2/node.json")).unwrap();
+    assert_eq!(actual, expected);
+    let graph = zk()
+        .current_dir(root)
+        .args(["graph", "--format", "json"])
+        .output()
+        .unwrap();
+    assert_eq!(json_data(&graph.stdout)["nodes"][0], expected["data"]);
+    let clean = zk()
+        .current_dir(root)
+        .args(["check", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(clean.status.success());
+    assert_eq!(json_data(&clean.stdout), serde_json::json!([]));
+    fs::write(
+        root.join("zettel/2603231410.typ"),
+        "= A note <2603231410>\n#tag(computed)\n",
+    )
+    .unwrap();
+    let failed = zk()
+        .current_dir(root)
+        .args(["check", "--format", "json"])
+        .output()
+        .unwrap();
+    assert_eq!(failed.status.code(), Some(1));
+    assert!(failed.stderr.is_empty());
+    let mut actual: serde_json::Value = serde_json::from_slice(&failed.stdout).unwrap();
+    let expected: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/schema2/diagnostics.json")).unwrap();
+    assert!(actual["data"][0]["message"].is_string());
+    // Wording is presentation, not a contract-fixture invariant.
+    actual["data"][0]["message"] = expected["data"][0]["message"].clone();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn explicit_metadata_is_user_owned_and_removed_fields_are_not_restored() {
+    let temporary = tempdir().unwrap();
+    let root = temporary.path();
+    initialize(root);
+    let manifest = fs::read_to_string(root.join("zk.toml")).unwrap();
+    for field in ["abstract", "keywords", "category"] {
+        assert!(manifest.contains(&format!("[metadata.{field}]")));
+    }
+    let source = "= Source <2603231410>\n#keywords(computed)\n#tag(\"MixedCase\", \"duplicate\", \"duplicate\")\n#summary[Résumé]\n#group.coding\nBody-only needle.\n";
+    fs::write(root.join("zettel/2603231410.typ"), source).unwrap();
+    let custom = "format = 2\n[metadata.tags]\nform = 'string-arguments-call'\nname = 'tag'\n\
+                  [metadata.synopsis]\nform = 'content-call'\nname = 'summary'\n\
+                  [metadata.topic]\nform = 'field-access'\nname = 'group'\n";
+    fs::write(root.join("zk.toml"), custom).unwrap();
+    let node = zk()
+        .current_dir(root)
+        .args(["query", "node", "2603231410"])
+        .output()
+        .unwrap();
+    let data = json_data(&node.stdout);
+    assert_eq!(data["metadata"]["tags"]["kind"], "string-list");
+    assert_eq!(
+        data["metadata"]["tags"]["value"],
+        serde_json::json!(["MixedCase", "duplicate", "duplicate"])
+    );
+    assert!(data["metadata"].get("keywords").is_none());
+    for term in ["mixedcase", "RÉSUMÉ", "CODING"] {
+        let output = zk()
+            .current_dir(root)
+            .args(["query", "search", term])
+            .output()
+            .unwrap();
+        assert_eq!(json_data(&output.stdout).as_array().unwrap().len(), 1);
+    }
+    for term in ["tags", "needle", " MixedCase"] {
+        let output = zk()
+            .current_dir(root)
+            .args(["query", "search", term])
+            .output()
+            .unwrap();
+        assert_eq!(json_data(&output.stdout), serde_json::json!([]));
+    }
+    for empty in ["format = 2\n", "format = 2\n[metadata]\n"] {
+        fs::write(root.join("zk.toml"), empty).unwrap();
+        let node = zk()
+            .current_dir(root)
+            .args(["query", "node", "2603231410"])
+            .output()
+            .unwrap();
+        assert_eq!(json_data(&node.stdout)["metadata"], serde_json::json!({}));
+        let check = zk()
+            .current_dir(root)
+            .args(["check", "--format", "json"])
+            .output()
+            .unwrap();
+        assert!(check.status.success());
+        assert_eq!(json_data(&check.stdout), serde_json::json!([]));
+        let search = zk()
+            .current_dir(root)
+            .args(["query", "search", "MixedCase"])
+            .output()
+            .unwrap();
+        assert_eq!(json_data(&search.stdout), serde_json::json!([]));
+    }
+    assert_eq!(
+        fs::read_to_string(root.join("zettel/2603231410.typ")).unwrap(),
+        source
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("templates/zettel.typ.tpl")).unwrap(),
+        zk::templates::ZETTEL
+    );
+}
+
+#[test]
+fn cli_statuses_and_global_archive_option_match_the_contract() {
+    let temporary = tempdir().unwrap();
+    let root = temporary.path();
+    initialize(root);
+    fs::write(
+        root.join("zettel/2603231410.typ"),
+        "= Source <2603231410>\n",
+    )
+    .unwrap();
+    let version = zk().arg("--version").output().unwrap();
+    assert_eq!(version.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8(version.stdout).unwrap(),
+        format!("zk {}\n", env!("CARGO_PKG_VERSION"))
+    );
+    for arguments in [vec!["graph"], vec!["query", "unknown"]] {
+        let output = zk().args(arguments).output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(!output.stderr.is_empty());
+    }
+    for command in ["node", "links", "backlinks"] {
+        let failed = zk()
+            .current_dir(root)
+            .args(["query", command, "9999999999"])
+            .output()
+            .unwrap();
+        assert_eq!(failed.status.code(), Some(1));
+        assert!(failed.stdout.is_empty());
+    }
+    let selected = zk()
+        .args([
+            "query",
+            "node",
+            "2603231410",
+            "--archive",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(selected.status.success());
+    assert_eq!(json_data(&selected.stdout)["id"], "2603231410");
+    for command in ["links", "backlinks"] {
+        let output = zk()
+            .current_dir(root)
+            .args(["query", command, "2603231410"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(json_data(&output.stdout), serde_json::json!([]));
+    }
+}
+
+#[test]
 fn emits_a_disk_backed_json_graph() {
     let temporary = tempdir().unwrap();
     let root = temporary.path().join("archive");
@@ -241,9 +447,9 @@ fn emits_a_disk_backed_json_graph() {
         "graph failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let graph: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let graph: serde_json::Value = json_data(&output.stdout);
 
-    assert_eq!(graph["schema_version"], 1);
+    assert!(graph.get("schema_version").is_none());
     assert_eq!(graph["revision"], 1);
     assert_eq!(
         graph["nodes"]
@@ -261,7 +467,7 @@ fn emits_a_disk_backed_json_graph() {
         ]
     );
     assert_eq!(graph["nodes"][0]["title"]["text"], "Network paths");
-    assert!(graph["nodes"][2]["keywords"].is_null());
+    assert!(graph["nodes"][2]["metadata"]["keywords"].is_null());
     let links = graph["links"].as_array().unwrap();
     assert_eq!(links.len(), 4);
     assert_eq!(links[0]["source"], "2603231410");
@@ -295,7 +501,7 @@ fn emits_a_disk_backed_json_graph() {
     let diagnostics = graph["diagnostics"].as_array().unwrap();
     for (path, code) in [
         ("zettel/2603231412.typ", "metadata.id_mismatch"),
-        ("zettel/2603231412.typ", "metadata.keywords"),
+        ("zettel/2603231412.typ", "metadata.invalid_shape"),
         ("zettel/2603231414.typ", "syntax.error"),
         ("zettel/readme.typ", "archive.filename"),
     ] {
@@ -305,6 +511,197 @@ fn emits_a_disk_backed_json_graph() {
                 .any(|diagnostic| diagnostic["path"] == path && diagnostic["code"] == code)
         );
     }
+}
+
+#[test]
+fn relaxed_metadata_and_absent_fields_work_over_the_cli() {
+    let temporary = tempdir().unwrap();
+    let root = temporary.path();
+    initialize(root);
+    // Neither an imported implementation nor the bundled library is needed for extraction.
+    fs::remove_file(root.join("lib/zettel.typ")).unwrap();
+    let source = "#import \"styles.typ\": preamble, extra\n#show: preamble\n\
+                  #keywords(\"one\")\nProse.\n#abstract[- Rich content]\n\
+                  #set text(size: 10pt)\n= Flexible <2603231410>\n#category.coding\n";
+    fs::write(root.join("zettel/2603231410.typ"), source).unwrap();
+    fs::write(
+        root.join("zettel/2603231411.typ"),
+        "= Minimal <2603231411>\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("zettel/2603231412.typ"),
+        "= Empty <2603231412>\n#abstract[]\n#keywords()\n",
+    )
+    .unwrap();
+    let output = zk().current_dir(root).arg("check").output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let output = zk()
+        .current_dir(root)
+        .args(["graph", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let graph: serde_json::Value = json_data(&output.stdout);
+    assert!(graph["diagnostics"].as_array().unwrap().is_empty());
+    assert_eq!(graph["nodes"][0]["title"]["text"], "Flexible");
+    assert_eq!(graph["nodes"][0]["metadata"]["keywords"]["value"][0], "one");
+    for field in ["abstract", "keywords", "category"] {
+        assert!(graph["nodes"][1]["metadata"][field].is_null());
+    }
+    assert_eq!(
+        graph["nodes"][2]["metadata"]["abstract"]["value"]["source"],
+        ""
+    );
+    assert_eq!(
+        graph["nodes"][2]["metadata"]["keywords"]["value"],
+        serde_json::json!([])
+    );
+}
+
+#[test]
+fn new_reads_the_user_template_and_configured_source_forms() {
+    let temporary = tempdir().unwrap();
+    let root = temporary.path();
+    initialize(root);
+    fs::write(
+        root.join("zk.toml"),
+        r#"format = 2
+[new]
+template = "templates/custom.typ.tpl"
+[metadata.abstract]
+form = "content-call"
+name = "summary"
+[metadata.keywords]
+form = "string-array-call"
+name = "tags"
+[metadata.category]
+form = "field-access"
+name = "group"
+"#,
+    )
+    .unwrap();
+    let template = "#import \"../lib/styles.typ\": preamble\r\n#show: preamble\r\n\
+                    #tags((\"custom\", \"template\"))\r\n= Custom <{{id}}>\r\n\
+                    #summary[Unicode café.]\r\n#group.coding\r\n\r\nID {{id}}.\r\n";
+    let template_path = root.join("templates/custom.typ.tpl");
+    fs::write(&template_path, template).unwrap();
+    let library = fs::read(root.join("lib/zettel.typ")).unwrap();
+    let output = zk().current_dir(root).arg("new").output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let relative = String::from_utf8(output.stdout).unwrap();
+    let path = root.join(relative.trim());
+    let id = path.file_stem().unwrap().to_str().unwrap();
+    let rendered = fs::read_to_string(&path).unwrap();
+    assert_eq!(rendered, template.replace("{{id}}", id));
+    assert_eq!(fs::read_to_string(&template_path).unwrap(), template);
+    assert_eq!(fs::read(root.join("lib/zettel.typ")).unwrap(), library);
+    let output = zk()
+        .current_dir(root)
+        .args(["query", "node", id])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let node: serde_json::Value = json_data(&output.stdout);
+    assert_eq!(
+        node["metadata"]["abstract"]["value"]["text"],
+        "Unicode café."
+    );
+    assert_eq!(
+        node["metadata"]["keywords"]["value"],
+        serde_json::json!(["custom", "template"])
+    );
+    assert_eq!(node["metadata"]["category"]["value"], "coding");
+    let range = &node["metadata"]["abstract"]["value"]["range"];
+    assert_eq!(
+        &rendered
+            [range["start"].as_u64().unwrap() as usize..range["end"].as_u64().unwrap() as usize],
+        "Unicode café."
+    );
+    let output = zk()
+        .current_dir(root)
+        .args(["query", "search", "TEMPLATE"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let nodes: serde_json::Value = json_data(&output.stdout);
+    assert_eq!(nodes.as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn new_rejects_missing_or_invalid_templates_without_creating_a_note() {
+    for template in [
+        None,
+        Some("= Missing placeholder <2603231410>\n"),
+        Some("= Wrong label <wrong>\nID {{id}}\n"),
+        Some("= Title <{{id}}>\n#abstract(one)\n"),
+        Some("= Title <{{id}}>\n#keywords(computed)\n"),
+        Some("= Title <{{id}}>\n#abstract[a]\n#abstract[b]\n"),
+    ] {
+        let temporary = tempdir().unwrap();
+        let root = temporary.path();
+        initialize(root);
+        let path = root.join("templates/zettel.typ.tpl");
+        match template {
+            Some(template) => fs::write(&path, template).unwrap(),
+            None => fs::remove_file(&path).unwrap(),
+        }
+        let output = zk().current_dir(root).arg("new").output().unwrap();
+        assert!(!output.status.success(), "accepted {template:?}");
+        assert!(!output.stderr.is_empty());
+        assert_eq!(fs::read_dir(root.join("zettel")).unwrap().count(), 0);
+        if let Some(template) = template {
+            assert_eq!(fs::read_to_string(path).unwrap(), template);
+        }
+    }
+}
+
+#[test]
+fn invalid_manifest_rules_are_errors_not_silent_defaults() {
+    for config in [
+        "[metadata.abstract]\nform = 'regex'\nname = 'summary'",
+        "[metadata.abstract]\nform = 'content-call'\nname = 'abstract'\n[metadata.keywords]\nform = 'string-arguments-call'\nname = 'abstract'",
+        "[metadata.abstract]\nform = 'content-call'\nname = 'module.summary'",
+        "[metadata.abstract]\nname = 'summary'",
+        "[new]\ntemplate = '../outside.tpl'",
+        "[metadata]\nunknown = true",
+    ] {
+        let temporary = tempdir().unwrap();
+        let root = temporary.path();
+        initialize(root);
+        fs::write(root.join("zk.toml"), format!("format = 2\n{config}\n")).unwrap();
+        let output = zk()
+            .current_dir(root)
+            .args(["graph", "--format", "json"])
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "accepted {config:?}");
+        assert!(!output.stderr.is_empty());
+    }
+}
+
+#[test]
+fn init_preserves_existing_template_files() {
+    let temporary = tempdir().unwrap();
+    let root = temporary.path();
+    fs::create_dir(root.join("templates")).unwrap();
+    let template = root.join("templates/zettel.typ.tpl");
+    fs::write(&template, "user-owned").unwrap();
+    let output = zk()
+        .args(["init", root.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert_eq!(fs::read_to_string(template).unwrap(), "user-owned");
+    assert!(!root.join("zk.toml").exists());
 }
 
 #[test]
@@ -344,7 +741,7 @@ fn check_reports_integrity_errors() {
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(1));
-    let diagnostics: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let diagnostics: serde_json::Value = json_data(&output.stdout);
 
     assert!(diagnostics.as_array().unwrap().iter().any(|diagnostic| {
         diagnostic["code"] == "reference.dangling" && diagnostic["path"] == "zettel/2603231410.typ"
@@ -363,7 +760,7 @@ fn check_reports_integrity_errors() {
             .iter()
             .any(|diagnostic| diagnostic["code"] == "archive.filename")
     );
-    for code in ["metadata.id_mismatch", "metadata.keywords"] {
+    for code in ["metadata.id_mismatch", "metadata.invalid_shape"] {
         assert!(diagnostics.as_array().unwrap().iter().any(|diagnostic| {
             diagnostic["path"] == "zettel/2603231412.typ" && diagnostic["code"] == code
         }));
@@ -414,7 +811,7 @@ fn queries_nodes_links_and_backlinks_as_json() {
         .output()
         .unwrap();
     assert!(node.status.success());
-    let node: serde_json::Value = serde_json::from_slice(&node.stdout).unwrap();
+    let node: serde_json::Value = json_data(&node.stdout);
     assert_eq!(node["title"]["text"], "Source");
 
     let links = zk()
@@ -423,7 +820,7 @@ fn queries_nodes_links_and_backlinks_as_json() {
         .output()
         .unwrap();
     assert!(links.status.success());
-    let links: serde_json::Value = serde_json::from_slice(&links.stdout).unwrap();
+    let links: serde_json::Value = json_data(&links.stdout);
     assert_eq!(links[0]["target"], "2603231411");
 
     let backlinks = zk()
@@ -432,7 +829,7 @@ fn queries_nodes_links_and_backlinks_as_json() {
         .output()
         .unwrap();
     assert!(backlinks.status.success());
-    let backlinks: serde_json::Value = serde_json::from_slice(&backlinks.stdout).unwrap();
+    let backlinks: serde_json::Value = json_data(&backlinks.stdout);
     assert_eq!(backlinks[0]["source"], "2603231410");
 }
 
@@ -502,7 +899,7 @@ fn searches_all_metadata_fields_without_capping_or_reordering_results() {
         .output()
         .unwrap();
     assert!(output.status.success());
-    let nodes: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let nodes: serde_json::Value = json_data(&output.stdout);
     let ids = nodes
         .as_array()
         .unwrap()
@@ -520,7 +917,7 @@ fn searches_all_metadata_fields_without_capping_or_reordering_results() {
         .args(["query", "search", "1412"])
         .output()
         .unwrap();
-    let id_nodes: serde_json::Value = serde_json::from_slice(&id_output.stdout).unwrap();
+    let id_nodes: serde_json::Value = json_data(&id_output.stdout);
     assert_eq!(id_nodes.as_array().unwrap().len(), 1);
     assert_eq!(id_nodes[0]["id"], "2603231412");
 
@@ -529,7 +926,7 @@ fn searches_all_metadata_fields_without_capping_or_reordering_results() {
         .args(["query", "search", ""])
         .output()
         .unwrap();
-    let all_nodes: serde_json::Value = serde_json::from_slice(&empty_output.stdout).unwrap();
+    let all_nodes: serde_json::Value = json_data(&empty_output.stdout);
     assert_eq!(all_nodes.as_array().unwrap().len(), 105);
 }
 
@@ -581,7 +978,7 @@ fn removal_is_blocked_by_incoming_references() {
         .output()
         .unwrap();
     assert!(backlinks.status.success());
-    let backlinks: serde_json::Value = serde_json::from_slice(&backlinks.stdout).unwrap();
+    let backlinks: serde_json::Value = json_data(&backlinks.stdout);
     assert_eq!(backlinks[0]["source"], "2603231410");
     assert_eq!(backlinks[1]["source"], "2603231412");
     assert_eq!(backlinks.as_array().unwrap().len(), 2);

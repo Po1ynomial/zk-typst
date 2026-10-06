@@ -14,13 +14,13 @@ The version-one user is a single person maintaining one archive on one machine o
 
 Agent workers may use optional archive-local operating skills and the same saved-state CLI available to the user. Live unsaved state belongs to the client session that owns the corresponding `zk lsp` process.
 
-## Version-one scope
+## Current scope
 
 ### Archive
 
 - One directory is one archive and one ID namespace.
-- `zk.toml` marks the root and declares `format = 1`.
-- `zk init` creates the fixed source layout without initializing or modifying Git.
+- `zk.toml` marks the root, declares `format = 2`, and configures bounded metadata source matching and the note template path.
+- `zk init` creates the source layout with explicit metadata seed definitions, a user-owned template, and a Typst library, without initializing or modifying Git.
 - `zk init --agent-skills` may install bundled archive-local skills. Installed skills immediately become user-owned.
 - An explicit CLI archive path may select an archive outside the current directory.
 - Zettel live in one flat `zettel/` directory.
@@ -31,8 +31,11 @@ Agent workers may use optional archive-local operating skills and the same saved
 
 - One `zettel/YYMMDDHHmm.typ` file is one node.
 - The filename establishes identity even when the contents are malformed.
-- Metadata uses a restricted direct top-level Typst form.
-- The body after the metadata header is unrestricted Typst.
+- Metadata uses configurable direct top-level Typst forms in any order and position among other source constructs.
+- One title with its ID label is required. Other metadata is a map of optional user-declared fields, with markup, string, and string-list values.
+- Removing declarations disables their extraction; omitted metadata configuration has no hidden field defaults.
+- Imports, show rules, and presentation are user choices. Abstract content and ordinary document content are unrestricted Typst.
+- `zk new` substitutes `{{id}}` in the archive-local template and validates rendered metadata without evaluating Typst.
 - Literal ten-digit `@ID` references create directed links.
 
 ### Provider
@@ -42,6 +45,7 @@ Agent workers may use optional archive-local operating skills and the same saved
 - Every link retains the byte range of each authored occurrence.
 - Closed-file source and syntax trees are discarded after extraction.
 - Open buffers retain incrementally updated sources and override disk files.
+- Public archive JSON results use data schema 2 envelopes shared by CLI and LSP queries.
 - `zk graph --format json` emits a versioned disk-backed snapshot.
 
 ### Commands
@@ -59,15 +63,17 @@ zk lsp
 
 ### Language server
 
-- `zk lsp` handles archive metadata, links, completion, navigation, backlinks, queries, and diagnostics.
+- `zk lsp` handles archive metadata, links, reference completion, navigation, backlinks, queries, and archive-specific diagnostics.
+- Tinymist handles general Typst language intelligence and dictionary-member completion. Generic syntax diagnostics remain available in the CLI, not the archive language server.
+- Saved manifest changes atomically re-extract disk and open-buffer metadata using the new rules.
 - Full-text document synchronization supplies live unsaved overlays.
-- LSP initialization advertises an explicit ZK protocol version and feature flags.
+- LSP initialization advertises ZK protocol 2, data schema 2, and feature flags independently of the executable version.
 - Protocol-level tests use the real standard-input and standard-output transport.
 
 ## Constraints
 
 - One machine writes the archive.
-- Paths and source contracts are fixed in archive format 1.
+- Note paths, title identity, and reference syntax are fixed in archive format 2. Supported metadata source forms and the template path are configurable.
 - IDs use local time with minute resolution and a ten-digit `YYMMDDHHmm` representation.
 - `zk` pins a supported Typst minor version because `typst-syntax` is not a stable independent protocol.
 - The archive remains relocatable and complete beneath its root.
@@ -112,7 +118,9 @@ Version one succeeds when:
 - a user can initialize an archive and create a correctly shaped Zettel;
 - shell commands can discover an archive or target it explicitly;
 - `zk lsp` can search metadata, complete and resolve references, and report backlinks against unsaved state;
-- category completion reads keys from the saved archive library;
+- archive metadata extraction respects the configured rules without enforcing presentation;
+- creation uses an editable archive-local template;
+- manifest reloads preserve open source and reject stale results;
 - backlinks and reference locations update as buffers change;
 - `zk check` reports malformed metadata, mismatched IDs, and dangling links;
 - removal is blocked when incoming references exist;
@@ -129,7 +137,6 @@ Version one succeeds when:
 ## Deferred questions
 
 - Controlled vocabulary and category policy
-- Configurable Zettel templates
 - Structural roles inferred from or declared alongside graph position
 - Publication and selected-subgraph compilation
 - Authoritative Typst metadata and archive-wide Typst values

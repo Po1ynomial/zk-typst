@@ -1,6 +1,6 @@
 # Version-one architecture
 
-Status: accepted
+Status: accepted, with the fixed metadata contract superseded by [Configurable source contracts](source-contracts.md). The source-contract consequences below record the original format-1 policy; provider ownership and source recovery remain in force.
 
 ## Decision
 
@@ -16,9 +16,9 @@ The provider eagerly retains a compact complete graph and discards closed-file s
 
 The daily workflow requires current metadata, links, backlinks, and diagnostics for unsaved and malformed buffers. Rust can update one source node independently, preserve exact authored ranges, and serve LSP requests without depending on aggregate Typst compilation.
 
-Experiments proved that Typst can construct rich node metadata and a centralized archive value, and Tinymist can show updated sampled values from unsaved buffers. Those paths still lack authored source ranges, share failures across aggregate compilation, and provide no direct live channel from Tinymist to `zk lsp`.
+Spikes proved that Typst can construct rich node metadata and a centralized archive value, and Tinymist can show updated sampled values from unsaved buffers. Those paths still lack authored source ranges, share failures across aggregate compilation, and provide no direct live channel from Tinymist to `zk lsp`.
 
-The compact eager Rust graph prototype measured about 96 MiB at 50,000 synthetic Zettel with one million reference occurrences. Graph construction took about 20 ms. These are experiment results, not measurements of the current executable. Retaining syntax trees, not retaining links or ranges, caused the material memory cost.
+The compact eager Rust graph prototype measured about 96 MiB at 50,000 synthetic Zettel with one million reference occurrences. Graph construction took about 20 ms. These are spike outcomes, not measurements of the current executable. Retaining syntax trees, not retaining links or ranges, caused the material memory cost.
 
 Restricting metadata to direct top-level forms removes ambiguity between source syntax and runtime evaluation. The unrestricted body still uses ordinary Typst.
 
@@ -36,7 +36,7 @@ Restricting metadata to direct top-level forms removes ambiguity between source 
 
 ## Supporting research
 
-- [Typst capability experiments](../research/typst-capabilities.md)
+- [Typst capability spikes](../research/typst-capabilities.md)
 - [Graph index performance](../research/graph-index-performance.md)
 
 ## Related decisions

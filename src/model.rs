@@ -1,6 +1,25 @@
+use std::cmp::Ordering;
+use std::collections::BTreeMap;
+
 use serde::Serialize;
 
-pub const PROVIDER_SCHEMA_VERSION: u32 = 1;
+pub const DATA_SCHEMA_VERSION: u32 = 2;
+pub const MAX_JSON_INTEGER: u64 = 9_007_199_254_740_991;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Envelope<T> {
+    pub schema_version: u32,
+    pub data: T,
+}
+
+impl<T> Envelope<T> {
+    pub fn new(data: T) -> Self {
+        Self {
+            schema_version: DATA_SCHEMA_VERSION,
+            data,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct ByteRange {
@@ -25,15 +44,40 @@ pub struct MarkupValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", content = "value", rename_all = "kebab-case")]
+pub enum MetadataValue {
+    Markup(MarkupValue),
+    String(String),
+    StringList(Vec<String>),
+}
+
+impl MetadataValue {
+    pub fn as_markup(&self) -> Option<&MarkupValue> {
+        match self {
+            Self::Markup(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn matches_lowercase_query(&self, query: &str) -> bool {
+        match self {
+            Self::Markup(value) => value.text.to_lowercase().contains(query),
+            Self::String(value) => value.to_lowercase().contains(query),
+            Self::StringList(values) => values
+                .iter()
+                .any(|value| value.to_lowercase().contains(query)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ZettelNode {
     pub id: String,
     pub path: String,
+    #[serde(skip_serializing)]
     pub generation: u64,
     pub title: Option<MarkupValue>,
-    #[serde(rename = "abstract")]
-    pub abstract_value: Option<MarkupValue>,
-    pub keywords: Option<Vec<String>>,
-    pub category: Option<String>,
+    pub metadata: BTreeMap<String, Option<MetadataValue>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -50,6 +94,16 @@ pub struct Diagnostic {
     pub severity: Severity,
     pub message: String,
     pub range: Option<ByteRange>,
+    pub field: Option<String>,
+}
+
+pub(crate) fn compare_diagnostics(left: &Diagnostic, right: &Diagnostic) -> Ordering {
+    left.path
+        .cmp(&right.path)
+        .then_with(|| left.range.cmp(&right.range))
+        .then_with(|| left.code.cmp(&right.code))
+        .then_with(|| left.field.cmp(&right.field))
+        .then_with(|| left.message.cmp(&right.message))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -69,7 +123,6 @@ pub struct Link {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GraphSnapshot {
-    pub schema_version: u32,
     pub revision: u64,
     pub nodes: Vec<ZettelNode>,
     pub links: Vec<Link>,

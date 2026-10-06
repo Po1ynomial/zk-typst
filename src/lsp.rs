@@ -2,24 +2,27 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
+use std::process::ExitCode;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
 
 use serde_json::{Value, json};
 use tower_lsp::jsonrpc::{Error as RpcError, Result as RpcResult};
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
-use typst_syntax::ast::{self, Expr, LetBindingKind, Pattern};
 use typst_syntax::{LinkedNode, Side, Source, SyntaxKind};
 
 use crate::archive::{Archive, is_zettel_id};
-use crate::model::{ByteRange, Link, Severity, ZettelNode};
+use crate::model::{
+    ByteRange, DATA_SCHEMA_VERSION, Envelope, Link, MetadataValue, Severity, ZettelNode,
+};
 use crate::provider::{Provider, ProviderError, UpdateOutcome};
 
 const QUERY_NODE: &str = "zk.queryNode";
 const QUERY_LINKS: &str = "zk.links";
 const QUERY_BACKLINKS: &str = "zk.backlinks";
 const COMPLETION_LIMIT: usize = 100;
-pub const ZK_PROTOCOL_VERSION: u32 = 1;
+pub const ZK_PROTOCOL_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PositionEncoding {
@@ -49,13 +52,21 @@ struct State {
 struct Backend {
     client: Client,
     state: RwLock<State>,
+    shutdown: Arc<AtomicBool>,
 }
 
-pub async fn serve(archive: Archive) -> Result<(), ProviderError> {
-    let root = archive.root().to_path_buf();
+pub async fn serve(archive: Archive) -> Result<ExitCode, ProviderError> {
+    let root = fs::canonicalize(archive.root()).map_err(|source| ProviderError::Io {
+        path: archive.root().to_path_buf(),
+        source,
+    })?;
+    let archive = Archive::open(&root)?;
     let provider = Provider::load(&archive)?;
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let backend_shutdown = Arc::clone(&shutdown);
     let (service, socket) = LspService::new(move |client| Backend {
         client,
+        shutdown: backend_shutdown,
         state: RwLock::new(State {
             provider,
             root,
@@ -67,7 +78,11 @@ pub async fn serve(archive: Archive) -> Result<(), ProviderError> {
     Server::new(tokio::io::stdin(), tokio::io::stdout(), socket)
         .serve(service)
         .await;
-    Ok(())
+    Ok(if shutdown.load(Ordering::Relaxed) {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    })
 }
 
 impl Backend {
@@ -134,7 +149,7 @@ impl LanguageServer for Backend {
                     },
                 )),
                 completion_provider: Some(CompletionOptions {
-                    trigger_characters: Some(vec!["@".to_owned(), ".".to_owned()]),
+                    trigger_characters: Some(vec!["@".to_owned()]),
                     ..Default::default()
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
@@ -152,9 +167,10 @@ impl LanguageServer for Backend {
                 experimental: Some(json!({
                     "zk": {
                         "protocolVersion": ZK_PROTOCOL_VERSION,
+                        "dataSchemaVersion": DATA_SCHEMA_VERSION,
                         "features": {
                             "archiveQueries": true,
-                            "categoryCompletion": true,
+                            "categoryCompletion": false,
                             "referenceCompletion": true,
                             "referenceTitleDecorations": true,
                         },
@@ -177,10 +193,16 @@ impl LanguageServer for Backend {
             .register_watcher;
         if register_watcher {
             let options = DidChangeWatchedFilesRegistrationOptions {
-                watchers: vec![FileSystemWatcher {
-                    glob_pattern: GlobPattern::String("**/zettel/*.typ".to_owned()),
-                    kind: Some(WatchKind::Create | WatchKind::Change | WatchKind::Delete),
-                }],
+                watchers: vec![
+                    FileSystemWatcher {
+                        glob_pattern: GlobPattern::String("**/zettel/*.typ".to_owned()),
+                        kind: Some(WatchKind::Create | WatchKind::Change | WatchKind::Delete),
+                    },
+                    FileSystemWatcher {
+                        glob_pattern: GlobPattern::String("**/zk.toml".to_owned()),
+                        kind: Some(WatchKind::Create | WatchKind::Change | WatchKind::Delete),
+                    },
+                ],
             };
             let registration = Registration {
                 id: "zk-zettel-files".to_owned(),
@@ -200,6 +222,7 @@ impl LanguageServer for Backend {
     }
 
     async fn shutdown(&self) -> RpcResult<()> {
+        self.shutdown.store(true, Ordering::Relaxed);
         Ok(())
     }
 
@@ -217,6 +240,9 @@ impl LanguageServer for Backend {
                 .state
                 .write()
                 .unwrap_or_else(|error| error.into_inner());
+            if !is_zettel_path(&state.root, &path) {
+                return;
+            }
             match state
                 .provider
                 .open_buffer(path, document.version, document.text)
@@ -258,6 +284,9 @@ impl LanguageServer for Backend {
                 .state
                 .write()
                 .unwrap_or_else(|error| error.into_inner());
+            if !is_zettel_path(&state.root, &path) {
+                return;
+            }
             match state
                 .provider
                 .change_buffer(path, document.version, &change.text)
@@ -286,12 +315,13 @@ impl LanguageServer for Backend {
                 return;
             }
         };
-        let result = self
-            .state
-            .read()
-            .unwrap_or_else(|error| error.into_inner())
-            .provider
-            .save_buffer(path);
+        let result = {
+            let state = self.state.read().unwrap_or_else(|error| error.into_inner());
+            if !is_zettel_path(&state.root, &path) {
+                return;
+            }
+            state.provider.save_buffer(path)
+        };
         if let Err(error) = result {
             self.log_provider_error("didSave", error).await;
             return;
@@ -313,6 +343,9 @@ impl LanguageServer for Backend {
                 .state
                 .write()
                 .unwrap_or_else(|error| error.into_inner());
+            if !is_zettel_path(&state.root, &path) {
+                return;
+            }
             let version = state.open_versions.remove(&uri);
             let result = state.provider.close_buffer(path);
             if result.is_err()
@@ -336,12 +369,19 @@ impl LanguageServer for Backend {
                 Ok(path) => path,
                 Err(_) => continue,
             };
-            let result = self
-                .state
-                .write()
-                .unwrap_or_else(|error| error.into_inner())
-                .provider
-                .refresh_disk(path);
+            let result = {
+                let mut state = self
+                    .state
+                    .write()
+                    .unwrap_or_else(|error| error.into_inner());
+                if path == state.root.join("zk.toml") {
+                    state.provider.reload_manifest().map(|_| ())
+                } else if is_zettel_path(&state.root, &path) {
+                    state.provider.refresh_disk(path).map(|_| ())
+                } else {
+                    continue;
+                }
+            };
             if let Err(error) = result {
                 if matches!(error, ProviderError::NoncanonicalPath(_)) {
                     continue;
@@ -357,6 +397,9 @@ impl LanguageServer for Backend {
         let state = self.state.read().unwrap_or_else(|error| error.into_inner());
         let uri = &params.text_document_position.text_document.uri;
         let path = uri_path(uri).map_err(RpcError::invalid_params)?;
+        if !is_zettel_path(&state.root, &path) {
+            return Ok(None);
+        }
         let text = document_text(&state, &path).map_err(internal_error)?;
         let offset = position_to_offset(
             &text,
@@ -372,7 +415,7 @@ impl LanguageServer for Backend {
         let Some(context) = completion_context(&source, offset) else {
             return Ok(None);
         };
-        let replace_start = context.replace_start();
+        let replace_start = context.replace_start;
         let replace_range = byte_range_to_lsp(
             &text,
             ByteRange {
@@ -383,14 +426,8 @@ impl LanguageServer for Backend {
         )
         .ok_or_else(RpcError::internal_error)?;
 
-        let items = match context {
-            CompletionContext::Reference { query, .. } => {
-                reference_completion_items(state.provider.nodes(), query, replace_range)
-            }
-            CompletionContext::Category { prefix, .. } => {
-                category_completion_items(&state.root, prefix, replace_range)
-            }
-        };
+        let items =
+            reference_completion_items(state.provider.nodes(), context.query, replace_range);
         Ok(Some(CompletionResponse::List(CompletionList {
             is_incomplete: true,
             items,
@@ -417,27 +454,23 @@ impl LanguageServer for Backend {
             .as_ref()
             .map(|title| title.text.as_str())
             .unwrap_or("Untitled");
-        let mut value = format!("### {title}\n\n`{}`", node.id);
-        if let Some(abstract_value) = &node.abstract_value
-            && !abstract_value.text.is_empty()
-        {
-            value.push_str("\n\n");
-            value.push_str(&abstract_value.text);
-        }
-        if let Some(keywords) = &node.keywords
-            && !keywords.is_empty()
-        {
-            value.push_str("\n\nKeywords: ");
-            value.push_str(
-                &keywords
-                    .iter()
-                    .map(|keyword| format!("`{keyword}`"))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-            );
-        }
-        if let Some(category) = &node.category {
-            value.push_str(&format!("\n\nCategory: `{category}`"));
+        let mut value = format!("### {}\n\n`{}`", markdown_text(title), node.id);
+        for (field, metadata) in &node.metadata {
+            let Some(metadata) = metadata else {
+                continue;
+            };
+            let text = match metadata {
+                MetadataValue::Markup(value) => value.text.clone(),
+                MetadataValue::String(value) => value.clone(),
+                MetadataValue::StringList(values) => {
+                    serde_json::to_string(values).map_err(internal_error)?
+                }
+            };
+            value.push_str(&format!(
+                "\n\n**{}**: {}",
+                markdown_text(field),
+                markdown_text(&text)
+            ));
         }
         Ok(Some(Hover {
             contents: HoverContents::Markup(MarkupContent {
@@ -522,32 +555,49 @@ impl LanguageServer for Backend {
                 tags: None,
                 deprecated: None,
                 location: location(&state, &node.path, range)?,
-                container_name: node.category.clone(),
+                container_name: None,
             });
         }
         Ok(Some(symbols))
     }
 
     async fn execute_command(&self, params: ExecuteCommandParams) -> RpcResult<Option<Value>> {
-        let id = params
-            .arguments
-            .first()
-            .and_then(Value::as_str)
-            .ok_or_else(|| RpcError::invalid_params("first argument must be a Zettel ID"))?;
+        if !matches!(
+            params.command.as_str(),
+            QUERY_NODE | QUERY_LINKS | QUERY_BACKLINKS
+        ) {
+            return Err(RpcError::method_not_found());
+        }
+        let [Value::String(id)] = params.arguments.as_slice() else {
+            return Err(RpcError::invalid_params(
+                "expected exactly one string Zettel ID",
+            ));
+        };
         let state = self.state.read().unwrap_or_else(|error| error.into_inner());
         let node = state
             .provider
             .node(id)
             .ok_or_else(|| RpcError::invalid_params(format!("Zettel `{id}` does not exist")))?;
         let value = match params.command.as_str() {
-            QUERY_NODE => serde_json::to_value(node),
-            QUERY_LINKS => serde_json::to_value(state.provider.links_from(id)),
-            QUERY_BACKLINKS => serde_json::to_value(state.provider.links_to(id)),
-            _ => return Err(RpcError::method_not_found()),
+            QUERY_NODE => serde_json::to_value(Envelope::new(node)),
+            QUERY_LINKS => serde_json::to_value(Envelope::new(state.provider.links_from(id))),
+            QUERY_BACKLINKS => serde_json::to_value(Envelope::new(state.provider.links_to(id))),
+            _ => unreachable!("command checked before parameters"),
         }
         .map_err(internal_error)?;
         Ok(Some(value))
     }
+}
+
+fn markdown_text(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for character in text.chars() {
+        if character.is_ascii_punctuation() {
+            escaped.push('\\');
+        }
+        escaped.push(character);
+    }
+    escaped
 }
 
 fn negotiate_encoding(params: &InitializeParams) -> PositionEncoding {
@@ -569,8 +619,10 @@ fn reference_at(
     position: &TextDocumentPositionParams,
 ) -> RpcResult<Option<(Link, ByteRange, String)>> {
     let path = uri_path(&position.text_document.uri).map_err(RpcError::invalid_params)?;
-    let id = zettel_id(&path)
-        .ok_or_else(|| RpcError::invalid_params("document is not a canonical Zettel"))?;
+    if !is_zettel_path(&state.root, &path) {
+        return Ok(None);
+    }
+    let id = zettel_id(&path).expect("canonical Zettel path checked");
     let text = document_text(state, &path).map_err(internal_error)?;
     let offset = position_to_offset(&text, position.position, state.encoding)
         .ok_or_else(|| RpcError::invalid_params("position is outside the document"))?;
@@ -598,7 +650,7 @@ fn diagnostics_for_uri(
         .provider
         .diagnostics()
         .iter()
-        .filter(|diagnostic| diagnostic.path == relative)
+        .filter(|diagnostic| diagnostic.path == relative && !diagnostic.code.starts_with("syntax."))
         .map(|diagnostic| tower_lsp::lsp_types::Diagnostic {
             range: diagnostic
                 .range
@@ -611,6 +663,12 @@ fn diagnostics_for_uri(
             code: Some(NumberOrString::String(diagnostic.code.clone())),
             source: Some("zk".to_owned()),
             message: diagnostic.message.clone(),
+            data: Some(json!({
+                "schema_version": DATA_SCHEMA_VERSION,
+                "path": diagnostic.path,
+                "field": diagnostic.field,
+                "byte_range": diagnostic.range,
+            })),
             ..Default::default()
         })
         .collect())
@@ -637,68 +695,49 @@ fn document_text<'a>(state: &'a State, path: &Path) -> Result<Cow<'a, str>, Stri
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum CompletionContext<'a> {
-    Reference {
-        replace_start: usize,
-        query: &'a str,
-    },
-    Category {
-        replace_start: usize,
-        prefix: &'a str,
-    },
-}
-
-impl CompletionContext<'_> {
-    fn replace_start(&self) -> usize {
-        match self {
-            Self::Reference { replace_start, .. } | Self::Category { replace_start, .. } => {
-                *replace_start
-            }
-        }
-    }
+struct CompletionContext<'a> {
+    replace_start: usize,
+    query: &'a str,
 }
 
 fn completion_context(source: &Source, offset: usize) -> Option<CompletionContext<'_>> {
     let linked = LinkedNode::new(source.root());
-    let mut inside_content_block = false;
-    if let Some(mut leaf) = linked.leaf_at(offset, Side::Before) {
-        loop {
-            inside_content_block |= leaf.kind() == SyntaxKind::ContentBlock;
-            if matches!(
-                leaf.kind(),
-                SyntaxKind::Raw
-                    | SyntaxKind::Str
-                    | SyntaxKind::LineComment
-                    | SyntaxKind::BlockComment
-                    | SyntaxKind::Escape
-            ) {
-                return None;
-            }
-            let Some(parent) = leaf.parent().cloned() else {
-                break;
-            };
-            leaf = parent;
-        }
+    if excluded_completion_position(&linked, offset, Side::Before) {
+        return None;
     }
     let text = source.text();
     let line_start = text[..offset].rfind('\n').map_or(0, |index| index + 1);
     let before = &text[line_start..offset];
-    if !inside_content_block
-        && let Some(prefix) = before.strip_prefix("#category.")
-        && prefix
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-    {
-        return Some(CompletionContext::Category {
-            replace_start: line_start + "#category.".len(),
-            prefix,
-        });
-    }
     let marker = before.rfind('@')?;
-    Some(CompletionContext::Reference {
+    if excluded_completion_position(&linked, line_start + marker, Side::After) {
+        return None;
+    }
+    Some(CompletionContext {
         replace_start: line_start + marker + 1,
         query: &before[marker + 1..],
     })
+}
+
+fn excluded_completion_position(root: &LinkedNode<'_>, offset: usize, side: Side) -> bool {
+    let Some(mut leaf) = root.leaf_at(offset, side) else {
+        return false;
+    };
+    loop {
+        if matches!(
+            leaf.kind(),
+            SyntaxKind::Raw
+                | SyntaxKind::Str
+                | SyntaxKind::LineComment
+                | SyntaxKind::BlockComment
+                | SyntaxKind::Escape
+        ) {
+            return true;
+        }
+        let Some(parent) = leaf.parent().cloned() else {
+            return false;
+        };
+        leaf = parent;
+    }
 }
 
 fn reference_completion_items(
@@ -741,10 +780,6 @@ fn reference_completion_items(
             CompletionItem {
                 label: format!("{title} [{}]", node.id),
                 kind: Some(CompletionItemKind::REFERENCE),
-                documentation: node
-                    .abstract_value
-                    .as_ref()
-                    .map(|abstract_value| Documentation::String(abstract_value.text.clone())),
                 sort_text: Some(format!("{index:03}")),
                 filter_text: Some(query.to_owned()),
                 text_edit: Some(CompletionTextEdit::Edit(TextEdit {
@@ -755,72 +790,6 @@ fn reference_completion_items(
             }
         })
         .collect()
-}
-
-fn category_completion_items(
-    root: &Path,
-    prefix: &str,
-    replace_range: Range,
-) -> Vec<CompletionItem> {
-    read_category_keys(root)
-        .into_iter()
-        .filter(|key| key.starts_with(prefix))
-        .map(|key| CompletionItem {
-            label: key.clone(),
-            kind: Some(CompletionItemKind::ENUM_MEMBER),
-            filter_text: Some(prefix.to_owned()),
-            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                range: replace_range,
-                new_text: key,
-            })),
-            ..Default::default()
-        })
-        .collect()
-}
-
-fn read_category_keys(root: &Path) -> Vec<String> {
-    fs::read_to_string(root.join("lib/zettel.typ"))
-        .ok()
-        .and_then(|text| extract_category_keys(&text))
-        .unwrap_or_default()
-}
-
-fn extract_category_keys(text: &str) -> Option<Vec<String>> {
-    let source = Source::detached(text.to_owned());
-    let root = LinkedNode::new(source.root());
-    let mut found = None;
-    for node in root.children() {
-        let Some(binding) = node.cast::<ast::LetBinding>() else {
-            continue;
-        };
-        let is_category = matches!(
-            binding.kind(),
-            LetBindingKind::Normal(Pattern::Normal(Expr::Ident(name)))
-                if name.as_str() == "category"
-        );
-        if !is_category {
-            continue;
-        }
-        if found.is_some() {
-            return None;
-        }
-        let Expr::Dict(dictionary) = binding.init()? else {
-            return None;
-        };
-        let mut keys = Vec::new();
-        for item in dictionary.items() {
-            let ast::DictItem::Named(named) = item else {
-                return None;
-            };
-            let key = named.name().as_str().to_owned();
-            if keys.contains(&key) {
-                return None;
-            }
-            keys.push(key);
-        }
-        found = Some(keys);
-    }
-    found
 }
 
 fn byte_range_to_lsp(text: &str, range: ByteRange, encoding: PositionEncoding) -> Option<Range> {
@@ -880,6 +849,10 @@ fn position_to_offset(text: &str, position: Position, encoding: PositionEncoding
         }
     };
     Some(line_start + relative)
+}
+
+fn is_zettel_path(root: &Path, path: &Path) -> bool {
+    path.parent() == Some(root.join("zettel").as_path()) && zettel_id(path).is_some()
 }
 
 fn zettel_id(path: &Path) -> Option<&str> {
@@ -960,7 +933,7 @@ mod tests {
         let source = Source::detached("Text @2603");
         assert_eq!(
             completion_context(&source, source.text().len()),
-            Some(CompletionContext::Reference {
+            Some(CompletionContext {
                 replace_start: 6,
                 query: "2603",
             })
@@ -969,20 +942,14 @@ mod tests {
         let title = Source::detached("Text @path efficiency");
         assert_eq!(
             completion_context(&title, title.text().len()),
-            Some(CompletionContext::Reference {
+            Some(CompletionContext {
                 replace_start: 6,
                 query: "path efficiency",
             })
         );
 
         let category = Source::detached("#category.phy");
-        assert_eq!(
-            completion_context(&category, category.text().len()),
-            Some(CompletionContext::Category {
-                replace_start: 10,
-                prefix: "phy",
-            })
-        );
+        assert_eq!(completion_context(&category, category.text().len()), None);
 
         let nested_category = Source::detached("#block[\n#category.phy\n]");
         let nested_offset = nested_category.text().find("\n]").unwrap();
@@ -993,26 +960,19 @@ mod tests {
 
         let comment = Source::detached("// @2603");
         assert_eq!(completion_context(&comment, comment.text().len()), None);
-    }
-
-    #[test]
-    fn extracts_category_keys_only_from_a_direct_dictionary() {
-        let library = r#"#let category = (
-  thoughts: [Thoughts],
-  physics: [Physics],
-)"#;
-        assert_eq!(
-            extract_category_keys(library),
-            Some(vec!["thoughts".to_owned(), "physics".to_owned()])
-        );
-        assert_eq!(
-            extract_category_keys("#let category = make-category()"),
-            None
-        );
-        assert_eq!(
-            extract_category_keys("#let category = (thoughts: [Thoughts], ..extra)"),
-            None
-        );
+        for text in [
+            r"\@2603",
+            "`@2603` after",
+            "#let text = \"@2603\"; after",
+            "/* @2603 */ after",
+        ] {
+            let source = Source::detached(text);
+            assert_eq!(
+                completion_context(&source, source.text().len()),
+                None,
+                "completed {text:?}"
+            );
+        }
     }
 
     #[test]
@@ -1030,9 +990,10 @@ mod tests {
                 path: String::new(),
                 generation: 1,
                 title: Some(markup(title)),
-                abstract_value: Some(markup(abstract_text)),
-                keywords: None,
-                category: None,
+                metadata: std::collections::BTreeMap::from([(
+                    "summary".to_owned(),
+                    Some(MetadataValue::Markup(markup(abstract_text))),
+                )]),
             }
         }
 

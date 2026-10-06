@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 use thiserror::Error;
 use zk::archive::Archive;
-use zk::model::{Diagnostic, Severity};
+use zk::model::{Diagnostic, Envelope, Severity};
 use zk::provider::Provider;
 
 #[derive(Debug, Parser)]
@@ -23,7 +23,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Initialize an archive using the fixed version-one layout.
+    /// Initialize an archive with an editable note template and Typst library.
     Init {
         /// Install bundled archive-local agent skills.
         #[arg(long)]
@@ -197,7 +197,7 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?;
-            runtime.block_on(zk::lsp::serve(archive))?;
+            return Ok(runtime.block_on(zk::lsp::serve(archive))?);
         }
         Command::Graph {
             format: GraphFormat::Json,
@@ -239,7 +239,7 @@ fn require_node<'a>(
 fn write_json<T: Serialize + ?Sized>(value: &T) -> Result<(), Box<dyn Error>> {
     let stdout = std::io::stdout();
     let mut output = stdout.lock();
-    serde_json::to_writer_pretty(&mut output, value)?;
+    serde_json::to_writer_pretty(&mut output, &Envelope::new(value))?;
     output.write_all(b"\n")?;
     Ok(())
 }

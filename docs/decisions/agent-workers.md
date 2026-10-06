@@ -1,6 +1,6 @@
 # Agent workers
 
-Status: accepted
+Status: accepted. The standard-template creation description below is superseded by user-owned archive templates in [Configurable source contracts](source-contracts.md). The raw search-result array below records schema 1; the implemented [CLI contract](../contract/cli.md) instead specifies schema-2 envelopes.
 
 ## Decision
 

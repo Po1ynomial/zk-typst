@@ -1,5 +1,7 @@
 # Design
 
+This guide describes the shared implemented design. Generic user-declared metadata, data schema 2, and ZK protocol 2 are implemented in zk 0.2.0. [System](SYSTEM.md) describes flows and limitations. The authoritative external definitions live under [Contract](contract/README.md); this guide explains their shared semantics and ownership rather than duplicating wire schemas.
+
 ## System shape
 
 ```text
@@ -33,23 +35,7 @@ release, rejects unsupported protocol versions, and checks feature flags for
 optional behavior. Plugin integration tests run against the minimum and latest
 supported engine releases.
 
-Protocol version 1 uses `capabilities.experimental.zk`:
-
-```json
-{
-  "protocolVersion": 1,
-  "features": {
-    "archiveQueries": true,
-    "categoryCompletion": true,
-    "referenceCompletion": true,
-    "referenceTitleDecorations": true
-  }
-}
-```
-
-The integer versions the editor contract rather than the archive format or
-graph snapshot schema. Feature flags allow compatible servers to omit optional
-behavior without making clients infer support from an executable version.
+The server uses ZK protocol 2 with independently advertised data schema 2 under `capabilities.experimental.zk`. The exact capabilities, standard method behavior, custom commands, and diagnostic data are defined in the [LSP contract](contract/lsp.md). Feature flags permit compatible servers to omit optional behavior without clients inferring support from an executable version. CLI and LSP archive queries share the [data schema](contract/data.md).
 
 Local development uses sibling checkouts and explicit executable paths. A
 protocol addition lands compatibly in `zk` before `zk.nvim` requires it.
@@ -61,7 +47,7 @@ Each repository has its own `PROJECT.md`, `DESIGN.md`, `SYSTEM.md`, decisions, a
 `zk.toml` marks the archive root:
 
 ```toml
-format = 1
+format = 2
 ```
 
 Tools walk upward from the current path until they find this file. LSP clients
@@ -69,7 +55,7 @@ use the archive root as the workspace root. This keeps
 `../lib/zettel.typ` inside Typst's project sandbox without requiring a Git
 repository.
 
-Canonical paths are fixed:
+Canonical note paths are fixed. The default initialized layout is:
 
 ```text
 zk.toml
@@ -77,7 +63,11 @@ zettel/
   2603231410.typ
 lib/
   zettel.typ
+templates/
+  zettel.typ.tpl
 ```
+
+Only `zk.toml` and `zettel/` are required to inspect an archive. The template path is configured in the manifest. The initial library and template are user-owned presentation and authoring inputs.
 
 An opt-in initialization may also create user-owned agent skills:
 
@@ -88,7 +78,7 @@ An opt-in initialization may also create user-owned agent skills:
       SKILL.md
 ```
 
-Other directories are allowed but have no version-one archive semantics.
+Other directories are allowed; only configured source inputs and canonical notes have archive semantics.
 After optional skill installation, `zk` does not manage `.agents/` or other
 additional files.
 
@@ -155,11 +145,13 @@ The unrestricted body begins here.
 This relates to @2603220935 because ...
 ```
 
-The header order and forms are part of archive format 1. Aliases, loops, conditional metadata, computed keyword arrays, and other equivalent Typst programs do not define archive metadata.
+This is an initializer template, not an enforced header. Archive format 2 recognizes direct top-level declarations in any order and position among imports, styling, and prose. One level-one title with its ID label is required. Other fields are optional user-declared metadata, each with at most one occurrence. Abstract content and ordinary document content may contain arbitrary Typst. Imports and show rules are presentation choices, not extraction requirements. Only literal ten-digit reference syntax contributes links.
 
-The required import names form an unordered exact set. Typst formatters may reorder them. Missing, repeated, renamed, or additional names are invalid.
+The manifest's `metadata` table is a map of arbitrary field names to bounded AST rules. Initialization writes the abstract, keywords, and category seed definitions explicitly. Runtime extraction never restores removed fields; an omitted or empty table means no extra metadata extraction. Adding a tag field changes configuration rather than the node's structural schema. Matching forms produce markup, string, or string-list values independently of their field names. Exact forms, validation, initialization, and creation behavior are defined in the [CLI contract](contract/cli.md#initialization-and-source-declarations).
 
-The body may contain arbitrary Typst. Only literal ten-digit reference syntax contributes links.
+Matching does not evaluate imports, bindings, aliases, qualified calls, nested declarations, conditionals, or generated values. Unsupported or overlapping rules fail clearly instead of guessing. The rationale and compatibility consequences are recorded in [Extensible metadata and external contracts](decisions/external-contracts.md).
+
+`[new] template = "templates/zettel.typ.tpl"` selects an archive-local UTF-8 template. `zk init` supplies its default once. `zk new` replaces only literal `{{id}}` markers and preserves all other bytes. It validates the rendered title and recognized metadata before creating a file without overwriting an existing path. Missing or invalid templates fail rather than falling back. Template paths must remain inside the archive, including their resolved symlink targets. Relative Typst imports refer to the resulting Zettel's location. Changing extraction rules never silently rewrites the template or library.
 
 ## Identity
 
@@ -171,64 +163,17 @@ A canonical filename creates a node even when parsing or metadata validation fai
 
 ## Metadata model
 
-A node contains:
+The public node has a stable core of filename ID, archive-relative path, recovered title, and a generic metadata map. Configured field names are data, not an engine enumeration. A name such as abstract, keywords, category, or status has no implicit semantic role. Internal source generations remain implementation state rather than persistent public note identity.
 
-```text
-ZettelNode
-  id
-  path
-  generation
-  title
-  abstract
-  keywords
-  category
-```
+Values distinguish exact markup content, literal strings, and authored string lists. Markup retains source, deterministic projected text, and its inner UTF-8 byte range without evaluation. Omitted configured fields are null; malformed or repeated declarations are null with field-specific diagnostics; unconfigured fields are not emitted. Empty authored values remain distinct from omission.
 
-Diagnostics are retained separately by the provider and appear in the snapshot's top-level `diagnostics` array, keyed by archive-relative path.
-
-Title and abstract use:
-
-```text
-MarkupValue
-  source
-  text
-  range
-```
-
-`source` is the exact inner Typst fragment. `text` is a deterministic projection for display and search. `range` is the half-open UTF-8 byte range of the inner fragment.
-
-The text projection:
-
-- concatenates text and spaces;
-- recurses through emphasis and strong markup;
-- uses raw text contents;
-- preserves literal `@ID` references;
-- preserves equations and code expressions as source;
-- omits comments.
-
-Keywords are an optional list of strings; category is an optional string. Missing or malformed fields remain absent and produce diagnostics. Category completion reads keys from the saved direct
-top-level `#let category = (...)` dictionary in `lib/zettel.typ` without
-making that presentation library authoritative for Zettel metadata.
+The authoritative node, typed-value, absence, projection, range, diagnostic, and ordering definitions are in [Shared data schema 2](contract/data.md). Search examines all textual declared values using the shared deterministic matcher. It does not privilege default metadata names or search arbitrary document bodies.
 
 ## Links and graph
 
-Each literal ten-digit reference is an authored occurrence. The logical graph groups occurrences by ordered source-target pair:
+Each literal ten-digit reference is an authored occurrence. The provider groups occurrences by ordered source/target pair, preserves every byte range, and derives incoming and outgoing adjacency. A target resolves when its node exists, including a malformed node; missing targets do not create synthetic nodes.
 
-```text
-Link
-  source
-  target
-  resolution
-  spans
-```
-
-`resolution` is `resolved` when a node with the target ID exists and `missing` otherwise. Missing targets do not create synthetic nodes.
-
-`spans` contains one half-open UTF-8 byte range for every authored occurrence. Repeated references therefore remain inspectable without creating parallel logical links.
-
-Incoming and outgoing adjacency are derived indexes. A compact implementation may keep a flat occurrence arena internally, but consumers see grouped links.
-
-References generated by functions, loops, strings, raw blocks, comments, imported code, or assembled labels do not create links.
+References remain archive links independently of whether their surrounding source is recognized as metadata. Strings, raw blocks, comments, imported code, and generated references do not contribute authored links. The public link shape and array ordering are defined once in the [shared data contract](contract/data.md#link).
 
 ## Provider session
 
@@ -278,6 +223,8 @@ An unsaved canonical `zettel/ID.typ` buffer creates a session-only node. Disk ev
 
 Every source state has a generation number. Parse results apply only when their generation is still current. Accepted replacements update the affected node, replace its outgoing links, repair incoming adjacency, and publish one coherent graph revision.
 
+Saved manifest changes re-extract all closed notes and open sources under the new metadata rules in one revision. All fallible reads complete before live state changes. Open source and versions survive, while all results prepared under old rules become stale. Invalid configuration or failed reads preserve the previous rules and graph. Unsaved manifest text is not a configuration overlay.
+
 ## Position conversion
 
 The provider stores byte ranges only.
@@ -303,7 +250,7 @@ Rust owns:
 
 `lib/zettel.typ` owns:
 
-- rendering the fixed metadata constructs;
+- rendering the archive's chosen metadata constructs;
 - archive presentation;
 - intercepting ten-digit `ref` elements so Typst and Tinymist do not report them as missing labels.
 
@@ -317,74 +264,27 @@ Bundled live consumers operate on provider revisions in-process. The provider ex
 
 ### JSON snapshots
 
-```text
-zk graph --format json
-```
+The CLI emits a complete saved-state graph through `zk graph --format json`. Targeted CLI queries and LSP archive-query commands share the same versioned node, metadata, link, and diagnostic values. The [data contract](contract/data.md) defines schema-2 envelopes and result shapes; the [CLI contract](contract/cli.md) and [LSP contract](contract/lsp.md) define their transport behavior.
 
-emits one complete disk-backed snapshot. Provider schema 1 has these top-level fields:
-
-- `schema_version`
-- `revision`
-- `nodes`
-- `links`
-- `diagnostics`
-
-Nodes contain the ID, archive-relative path, generation, optional title and abstract `MarkupValue` objects, keywords, and category. Links contain the source, target, resolution, and every occurrence range. Diagnostics contain the path, stable code, severity, message, and an optional range.
-
-Ranges serialize as `start` and `end` UTF-8 byte offsets. Nodes sort by ID. Links sort by source and target. Diagnostics sort by path and range. Missing or malformed metadata serializes as `null`.
-
-The provider schema version is independent of `zk.toml`'s archive format version. A CLI session revision is not a durable archive identifier.
-
-Version one has no public cross-process change stream.
+Data schema versions are independent of archive and editor protocol versions. Revisions describe one session's graph state, not durable archive identity. There is no public cross-process change stream or shared unsaved state.
 
 ## CLI responsibilities
 
-`zk` is noninteractive and scriptable. It initializes archives, allocates Zettel, checks invariants, prevents unsafe removal, serves targeted queries, emits graph snapshots, and runs the language server.
+`zk` is noninteractive and scriptable. It initializes archives, creates notes from user-owned templates, checks invariants, prevents removal while incoming references remain, exposes saved-state queries, emits graph snapshots, and runs the language server. It does not launch an editor, compile or publish Typst, coordinate workers, or silently rewrite source.
 
-`zk check` defaults to text diagnostics and supports a JSON diagnostic array
-through `--format json`. Errors produce a failing exit status; warnings do
-not. `zk query node`, `zk query links`, `zk query backlinks`, and
-`zk query search` emit JSON. `zk remove` reports every incoming byte range
-when it refuses deletion.
-
-`zk query search <QUERY>` applies deterministic case-insensitive substring
-matching to IDs, projected titles, projected abstracts, keywords, and
-categories. The matcher is shared with LSP workspace-symbol search. The
-command returns every matching node in provider ID order without an implicit
-cap. The bundled skill warns that broad searches can produce large JSON
-arrays.
-
-It does not launch an editor, provide a TUI, publish documents, compile Typst,
-coordinate workers, or silently rewrite Zettel bodies.
+Invocation, archive selection, streams, exit statuses, creation validation, JSON envelopes, and command-specific results are specified in the [CLI contract](contract/cli.md). Search applies the shared matcher to IDs, titles, and all textual declared metadata without an implicit result cap. Human-facing diagnostics and error wording are not machine-readable output contracts.
 
 ## Language-server responsibilities
 
-`zk lsp` provides metadata diagnostics, searchable Zettel completion, category
-completion, hover, definitions, references, backlinks, and archive queries.
-It advertises ZK protocol version 1 and its feature flags under the standard
-experimental server-capability field.
-`workspace/symbol` searches live metadata. The `zk.queryNode`, `zk.links`, and
-`zk.backlinks` execute commands expose the provider's targeted JSON values to
-editor clients.
+`zk lsp` exposes live archive-specific metadata diagnostics, reference completion, hover, navigation, incoming reference locations, workspace search, and targeted archive queries. Open source takes precedence over saved files. Ordinary library buffers and unrelated document requests do not belong to its graph session.
 
-Reference completion treats numeric text after `@` as an ID prefix and other
-text as a case-insensitive title query. It returns at most 100 items, marks the
-result incomplete for continued server filtering, and replaces the temporary
-query with the selected ID. Empty queries show the newest Zettel. The title
-matching and ranking rules remain provisional pending inspection with a large
-archive.
+Hover displays declared metadata generically in deterministic field-name order. Reference completion uses only core title and ID without assuming an abstract field. No configurable field implicitly supplies grouping, lifecycle, or presentation roles. Dictionary-member completion remains Tinymist's responsibility.
 
-For a direct top-level `#category.<query>`, the server returns only keys from a
-direct saved `#let category = (...)` dictionary in `lib/zettel.typ`. It does
-not evaluate computed library code.
-
-Protocol version 1 advertises archive queries, category completion, reference
-completion, and reference-title decoration data as feature flags. Clients
-decide how to present those capabilities.
+The [LSP contract](contract/lsp.md) owns protocol-2 discovery, feature flags, source synchronization, file notifications, method behavior, error delivery, standard-position conversion, and diagnostic data. The CLI and custom editor queries use the same shared data schema but different source views.
 
 ## Tinymist integration
 
-Tinymist handles ordinary Typst language features. The archive library transforms ten-digit references before Typst's default reference realization, preventing unresolved-label diagnostics. `zk` alone determines whether the target Zettel exists.
+Tinymist handles ordinary Typst syntax, bindings, imports, types, dictionary-member completion, rendering, and compilation. `zk lsp` does not publish generic Typst syntax diagnostics. The archive library transforms ten-digit references before Typst's default reference realization, preventing unresolved-label diagnostics. `zk` alone determines whether the target Zettel exists.
 
 Tinymist integration is optional and never becomes canonical archive state.
 
@@ -394,22 +294,21 @@ Tinymist integration is optional and never becomes canonical archive state.
 
 - noncanonical filenames and entries under `zettel/`;
 - filename and heading-label mismatch;
-- missing, repeated, malformed, or misplaced metadata;
-- invalid metadata body structure;
+- missing or repeated titles;
+- repeated or malformed recognized metadata declarations;
 - dangling references.
 
-Incoming references also block removal, but their reported locations are not provider diagnostics. Diagnostics use the current provider revision and exact byte ranges where available.
+Incoming references also block removal, but their reported locations are not provider diagnostics. Diagnostics use the current provider revision and exact byte ranges where available. Generic syntax diagnostics remain in provider snapshots and `zk check` but are filtered from LSP publications. Imports, show rules, declaration order, and abstract block content are not archive validity requirements.
 
 ## Migration
 
-The current executable accepts archive format 1 only. It has no `zk migrate` command and never silently rewrites source for a different format. A future format change requires an explicit, reviewable migration mechanism.
+The current executable accepts archive format 2 only. Release 0.2.0 intentionally breaks the pre-deployment format-1 source contract without adding a migration command. It never silently rewrites source, templates, or libraries. Future migrations for deployed archives must be explicit and reviewable.
 
 `lib/zettel.typ` is user-owned. `zk init` supplies its initial version but never silently replaces it. Library changes currently require manual edits.
 
 ## Deferred design
 
 - Controlled vocabulary and category derivation
-- Configurable templates
 - Structural node roles
 - Aggregate or selected-subgraph Typst compilation
 - Publishing and export

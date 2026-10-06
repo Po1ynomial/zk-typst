@@ -1,5 +1,9 @@
 # Zettel
 
+Status: superseded in part
+
+The format-1 source shape below is superseded by [Configurable source contracts](source-contracts.md). Filename identity, timestamp allocation, and the single node type remain in force.
+
 ## Identity
 
 Each Zettel is one file whose filename is its ID:

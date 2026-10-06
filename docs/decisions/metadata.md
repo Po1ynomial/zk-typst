@@ -1,5 +1,9 @@
 # Metadata
 
+Status: superseded in part
+
+The rigid format-1 metadata policy below is superseded by [Configurable source contracts](source-contracts.md). It is preserved as the rationale for the original source contract.
+
 ## Policy
 
 Metadata is decentralized and canonical in each Zettel. There is no centralized metadata file.
