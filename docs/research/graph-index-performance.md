@@ -17,7 +17,7 @@ Measured on 2026-09-04:
 - `typst-syntax` 0.15.1
 - eight parser threads for the reported startup measurements
 
-The benchmark and raw output are under `experiment/05-graph-bench/`.
+The benchmark and raw output are under `spikes/05-graph-bench/`.
 
 ## Models compared
 
@@ -109,7 +109,7 @@ Use an eager global graph with lazy source hydration:
 - discard source text and syntax trees for closed files;
 - retain incrementally updated `typst_syntax::Source` values only for open buffers.
 
-Do not add lazy graph indexing or a persistent cache for version one. Revisit that choice only if measurements on a real archive differ materially from this experiment.
+Do not add lazy graph indexing or a persistent cache for version one. Revisit that choice only if measurements on a real archive differ materially from this spike.
 
 ## Limitations
 

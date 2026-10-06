@@ -7,9 +7,9 @@ Durable project knowledge is maintained under `docs/`.
 - `docs/PROJECT.md`: background data of the project: current goals, no-goals, scope, constraints, success conditions.
 - `docs/DESIGN.md`: current cross-slice behavioral or technical design. Create when multiple slices need a shared target.
 - `docs/SYSTEM.md`: current implemented capabilities, entry points, flows, inspection commands, checks, and limitations. Create when existing documentation does not provide this guide.
-- `docs/decisions/XXXX-Title.md`: durable records of settled choices that a future agent could reopen, contradict, or misunderstand.
-- `docs/research/XXXX-Title.md`: durable findings and evidence that are costly, external, uncertain, or likely to be reused. For example `0003-compare-tesseract-and-cloud.md`
-- `spikes/XXXX-Title/`: curated spike artifacts, often with one off code. Title should match research markdown files above.
+- `docs/decisions/XX-slug.md`: durable records of settled choices that a future agent could reopen, contradict, or misunderstand.
+- `docs/research/slug.md`: durable findings and evidence that are costly, external, uncertain, or likely to be reused. For example `compare-tesseract-and-cloud.md`
+- `spikes/XX-slug/`: curated spike artifacts, often with one off code.
 
 Rules:
 

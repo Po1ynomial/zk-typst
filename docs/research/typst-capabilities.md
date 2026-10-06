@@ -1,14 +1,14 @@
-# Typst capability experiments
+# Typst capability spikes
 
 ## Version-one outcome
 
-These experiments map what Typst and Tinymist can do. Version one does not use evaluated Typst metadata as provider state. The accepted design keeps the live graph authoritative in Rust and reserves Typst archive computation for later compilation paths. See [Version-one architecture](../decisions/v1-architecture.md).
+These spikes map what Typst and Tinymist can do. Version one does not use evaluated Typst metadata as provider state. The accepted design keeps the live graph authoritative in Rust and reserves Typst archive computation for later compilation paths. See [Version-one architecture](../decisions/v1-architecture.md).
 
 ## Environment
 
 - Typst CLI 0.15.1
 - Tinymist 0.15.2 with embedded Typst 0.15.0
-- Scratch cases: `experiment/`
+- Scratch cases: `spikes/`
 
 ## 1. Intercepting Zettel references
 
@@ -22,9 +22,9 @@ Can archive Typst code recognize a native ten-digit `@ID` reference, replace its
 - `reference/styling.md` states that a transformational show rule can replace an element with arbitrary content.
 - `reference/foundations/label.md` states that label names may contain digits and that `str(label)` returns the name.
 
-### Experiment
+### Spike
 
-Cases live under `experiment/01-reference-show/`. The handler was:
+Cases live under `spikes/01-reference-show/`. The handler was:
 
 ```typst
 #show ref: it => {
@@ -82,9 +82,9 @@ When the target heading exists in the same Typst document, can archive code rend
 - `reference/model/link.md` accepts an element location as an internal-link destination.
 - `reference/introspection/location.md` lists headings as locatable elements.
 
-### Experiment
+### Spike
 
-Cases live under `experiment/02-title-link/`. For a resolved ten-digit reference, the show rule returns:
+Cases live under `spikes/02-title-link/`. For a resolved ten-digit reference, the show rule returns:
 
 ```typst
 link(it.element.location(), it.element.body)
@@ -125,9 +125,9 @@ Can `lib/zettel.typ` implement the proposed `#abstract[...]`, `#keywords(...)`, 
 - `reference/foundations/arguments.md` documents argument sinks for calls such as `#keywords("a", "b")`.
 - `reference/foundations/dictionary.md` documents field access, which supports a finite category dictionary and `#category.thoughts` syntax.
 
-### Experiment
+### Spike
 
-`experiment/03-metadata-shape/` reproduces the proposed archive layout with sibling `lib/` and `zettel/` directories. It covers a rich abstract containing a numeric reference, multiple keywords, an empty abstract, an empty keyword list, valid categories, an unknown category, and a numeric reference in the body.
+`spikes/03-metadata-shape/` reproduces the proposed archive layout with sibling `lib/` and `zettel/` directories. It covers a rich abstract containing a numeric reference, multiple keywords, an empty abstract, an empty keyword list, valid categories, an unknown category, and a numeric reference in the body.
 
 Results:
 
@@ -144,11 +144,11 @@ Running `typst compile zettel/ID.typ` without `--root` failed before evaluation 
 
 Supported. Ordinary Typst functions and values can implement all three proposed call forms under the imported wrapper. A category dictionary can also enforce the names known to the library. The relative import requires the Typst project root to be the archive root, which matches an archive-aware editor session but not a bare nested-file CLI invocation.
 
-This experiment proves that the forms evaluate and render. It does not prove that the Rust syntax-tree parser can assign their archive semantics without evaluation, or that Typst can enforce the full metadata content contract.
+This spike proves that the forms evaluate and render. It does not prove that the Rust syntax-tree parser can assign their archive semantics without evaluation, or that Typst can enforce the full metadata content contract.
 
 ### Design relevance
 
-The proposed visible metadata syntax is realistic. `lib/zettel.typ` can own rendering and can reject unknown category field names. `zk` still needs to check source-level archive contracts unless later experiments show that Typst can enforce them reliably and expose suitable diagnostics.
+The proposed visible metadata syntax is realistic. `lib/zettel.typ` can own rendering and can reject unknown category field names. `zk` still needs to check source-level archive contracts unless later spikes show that Typst can enforce them reliably and expose suitable diagnostics.
 
 Confidence: high for Typst 0.15.1 and Tinymist's embedded Typst 0.15.0.
 
@@ -165,9 +165,9 @@ Can the Typst library enforce the requirement that each Zettel contains exactly 
 - `reference/context.md` explains that queries require context and that the compiler attempts convergence across up to five iterations.
 - `reference/foundations/assert.md` provides custom assertion diagnostics.
 
-### Experiment
+### Spike
 
-`experiment/04-abstract-count/` makes `abstract` emit an invisible marker:
+`spikes/04-abstract-count/` makes `abstract` emit an invisible marker:
 
 ```typst
 #let abstract(body) = {
@@ -204,9 +204,9 @@ Confidence: high for correctness in the tested cases; low on editor cost and dia
 
 Can `lib/zettel.typ` derive one aggregate metadata object from the visible heading, abstract, keywords, and category constructs without `zk` supplying those values?
 
-### Experiment
+### Spike
 
-`experiment/06-aggregate-metadata/` defines the visible metadata helpers so that each emits an invisible marker alongside its presentation. The `#show: zettel` wrapper queries:
+`spikes/06-aggregate-metadata/` defines the visible metadata helpers so that each emits an invisible marker alongside its presentation. The `#show: zettel` wrapper queries:
 
 - the level-one heading for its label and body;
 - the abstract marker for rich content;
@@ -247,7 +247,7 @@ The metadata object can preserve rich Typst content rather than reducing title a
 
 ### Design relevance
 
-This experiment established a possible evaluation-first pipeline for valid documents, with source-level extraction supplying missing link ranges. That alternative was not adopted for version one. Rust owns metadata semantics and malformed-buffer recovery; evaluated metadata remains relevant to later compilation paths.
+This spike established a possible evaluation-first pipeline for valid documents, with source-level extraction supplying missing link ranges. That alternative was not adopted for version one. Rust owns metadata semantics and malformed-buffer recovery; evaluated metadata remains relevant to later compilation paths.
 
 Confidence: high for valid documents on the tested versions.
 
@@ -264,9 +264,9 @@ Can Typst produce one archive-wide metadata value containing all nodes and group
 - `reference/foundations/sys.md` states that external inputs are strings. Structured input must be decoded, for example as JSON.
 - `reference/foundations/selector.md` documents `within(here())` for queries local to a context expression.
 
-### Central experiment
+### Central spike
 
-`experiment/07-central-vs-merge/` contains a synthetic archive root. `zk.toml` marks the project root. The root receives a JSON file list, then dynamically includes each path:
+`spikes/07-central-vs-merge/` contains a synthetic archive root. `zk.toml` marks the project root. The root receives a JSON file list, then dynamically includes each path:
 
 ```typst
 #let files = json(bytes(sys.inputs.files))
@@ -288,7 +288,7 @@ A second root accepts source-derived reference occurrences from `zk`. Typst grou
 
 Typst also represented a syntactically valid Zettel with a missing abstract as a partial node with `valid: false`, `abstract: none`, and a semantic error list. Query-dependent validation had to return diagnostics as data. Asserting on an initially empty local query aborted before introspection could converge.
 
-### Independent experiment
+### Independent spike
 
 The same valid Zettel produced equivalent node metadata when evaluated one file at a time. A file with an unclosed content block failed its own evaluation while the other files remained queryable.
 
@@ -340,12 +340,6 @@ Does Tinymist compile unsaved Neovim buffer text, can runtime configuration chan
 Tinymist 0.15.2 documentation lists `--input` entries in `tinymist.typstExtraArgs`. Its LSP implementation accepts `workspace/didChangeConfiguration`, includes user inputs in primary compiler options, and reloads projects when those options change.
 
 Tinymist's hover implementation traces non-literal expressions through the active Typst world and labels the result `Sampled Values`.
-
-Local source used for inspection:
-
-```text
-/Users/polynomial/projects/local-docs/experiment/tinymist/source
-```
 
 ### LSP probe
 
