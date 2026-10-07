@@ -202,7 +202,7 @@ All suites run under `cargo test` without shell scripts or `jq`. The LSP suite c
 
 ## Continuous integration
 
-[CI](../.github/workflows/ci.yml) runs `just check` on Ubuntu 24.04 for pull requests, pushes to `main`, and manual dispatch. It uses the repository's Rust toolchain file and the same pinned `just` and `rumdl` versions documented above.
+[CI](../.github/workflows/ci.yml) runs `just check` on Ubuntu 24.04 for pull requests, pushes to `main`, and manual dispatch. It uses the repository's Rust toolchain file and the same pinned `just` and `rumdl` versions documented above. Both tools come from published release artifacts with checksum verification rather than from a source build: `just` through `taiki-e/install-action`, and `rumdl` from its prebuilt `x86_64-unknown-linux-musl` release archive.
 
 The job has read-only repository permissions, does not persist checkout credentials, caches Rust dependencies and installed Cargo tools, cancels superseded runs for the same event and ref, and has a 20-minute timeout. Actions are pinned to full commit SHAs with their release tags noted alongside them. Cache writes are restricted to `main`.
 

@@ -32,7 +32,7 @@ These conclusions do not select between user-managed assets, a shared directory,
 
 ## Environment and provenance
 
-The curated artifacts are under [spikes/08-asset-resolution](../../spikes/08-asset-resolution/README.md). They were promoted from temporary session experiments and re-run from their repository location.
+The curated artifacts are under [spikes/08-asset-resolution]. They were promoted from temporary session experiments and re-run from their repository location.
 
 | Component | Recorded value |
 | --- | --- |

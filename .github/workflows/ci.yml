@@ -41,7 +41,20 @@ jobs:
           fallback: none
 
       - name: Install Markdown linter
-        run: cargo install --locked --quiet rumdl --version 0.2.78
+        env:
+          RUMDL_VERSION: 0.2.78
+          RUMDL_TARGET: x86_64-unknown-linux-musl
+        run: |
+          set -euo pipefail
+          archive="rumdl-v${RUMDL_VERSION}-${RUMDL_TARGET}.tar.gz"
+          base="https://github.com/rvben/rumdl/releases/download/v${RUMDL_VERSION}"
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          curl -fsSLo "$tmp/$archive" "$base/$archive"
+          curl -fsSLo "$tmp/$archive.sha256" "$base/$archive.sha256"
+          (cd "$tmp" && sha256sum -c "$archive.sha256")
+          sudo tar -xzf "$tmp/$archive" -C /usr/local/bin rumdl
+          rumdl --version
 
       - name: Run repository checks
         run: just check

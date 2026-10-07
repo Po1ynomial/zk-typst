@@ -9,8 +9,8 @@ Durable project knowledge is maintained under `docs/`.
 - `docs/SYSTEM.md`: current implemented capabilities, entry points, flows, inspection commands, checks, and limitations. Create when existing documentation does not provide this guide.
 - `docs/contract/`: authoritative external CLI and LSP contracts with shared data definitions. State their version and implementation status; link them from guides rather than duplicating wire schemas.
 - `docs/decisions/slug.md`: durable records of settled choices that a future agent could reopen, contradict, or misunderstand.
-- `docs/research/slug.md`: durable findings and evidence that are costly, external, uncertain, or likely to be reused. For example `compare-tesseract-and-cloud.md`
-- `spikes/XX-slug/`: curated spike artifacts, often with one off code.
+- `docs/research/slug.md`: durable findings and evidence that are costly, external, uncertain, or likely to be reused. For example `compare-tesseract-and-cloud.md`. They should refer to the spike names but not link to exact content, else the remote Markdown links will be broken.
+- `spikes/XX-slug/`: curated spike artifacts, often with one off code. They are not tracked by git. Keep the public results in the research Markdown notes.
 
 Rules:
 
