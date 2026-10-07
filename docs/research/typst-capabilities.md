@@ -4,6 +4,8 @@
 
 These spikes map what Typst and Tinymist can do. Version one does not use evaluated Typst metadata as provider state. The accepted design keeps the live graph authoritative in Rust and reserves Typst archive computation for later compilation paths. See [Version-one architecture](../decisions/v1-architecture.md).
 
+[Asset resolution from a Zettel title label](asset-resolution.md) records a separate, newer spike on contextual lookup, native file-loading operations, and context-free authoring limits. Its compiler versions and reproduction artifacts are documented separately.
+
 ## Environment
 
 - Typst CLI 0.15.1
