@@ -1,0 +1,15 @@
+{
+  "schema_version": 2,
+  "data": [
+    {
+      "note_id": "2603231410",
+      "name": "fragments/example.typ",
+      "path": "assets/2603231410/fragments/example.typ"
+    },
+    {
+      "note_id": "2603231410",
+      "name": "tiger.jpg",
+      "path": "assets/2603231410/tiger.jpg"
+    }
+  ]
+}

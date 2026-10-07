@@ -86,6 +86,16 @@ Metadata search compares the query case-insensitively with IDs, projected titles
 
 `zk remove <ID>` deletes a canonical Zettel only when it has no incoming references. A blocked removal leaves the file untouched and prints every incoming source path and byte range.
 
+### Asset management
+
+`zk asset add ID SOURCE [--name RELATIVE-PATH]` copies one regular file into `assets/ID/` for an existing saved canonical note. It uses the source basename unless a relative destination name is supplied. It preserves bytes without interpreting image or Typst contents, copying dependencies, rewriting imports, or inserting source. Parent directories are created lazily; `init` and `new` do not create asset directories.
+
+`zk asset list ID` returns schema-2 JSON entries recursively, sorted by namespace-relative name. `zk asset remove ID RELATIVE-PATH` deletes exactly one regular file. Listing and removal remain available after note deletion. Add/remove print archive-relative paths, while authors use a leading slash for native Typst project-root paths. Shape and safety rules are authoritative in the [CLI contract](contract/cli.md#asset-management) and [asset data definition](contract/data.md#asset).
+
+Asset commands validate the archive template but do not load the note graph. Missing asset namespaces list as empty. Namespace components and stored files cannot be symlinks; traversal, unsupported names, special files, and overwriting are rejected. Explicit source symlinks to regular files copy the target bytes. Copying stages outside ID namespaces and publishes only completed bytes without clobbering. Failed copies leave no partial destination; empty parent directories may remain.
+
+Removing a note retains its assets because explicit paths permit cross-note sharing. Files remain user-owned and editable directly. Assets never become nodes, metadata, or links. There is no asset-specific LSP capability, orphan warning, unused-file detector, recursive directory importer, or automatic cleanup. Tinymist handles ordinary file-loading diagnostics. The policy is recorded in [Explicit-path asset management](decisions/asset-management.md).
+
 ### Live provider sessions
 
 The same `Provider` type supports long-lived clients. `open_buffer` installs full text and a document version. `change_buffer` accepts only newer versions and uses `typst_syntax::Source::replace` for incremental reparsing.
@@ -133,7 +143,8 @@ The authoritative implemented interface definitions are maintained under [docs/c
 ## Code entry points
 
 - `src/main.rs` defines the CLI, JSON output, and process exit behavior.
-- `src/archive.rs` implements initialization, discovery, validation, creation, skill installation, and removal.
+- `src/archive.rs` implements initialization, discovery, validation, creation, skill installation, and note removal.
+- `src/assets.rs` implements safe asset copying, recursive listing, exact removal, and shared Archive methods.
 - `src/config.rs` defines the format-only manifest and bounded matcher types.
 - `src/template.rs` compiles comment declarations, validates the template, and renders exact source edits.
 - `src/extract.rs` extracts configured metadata, references, ranges, and syntax diagnostics.
@@ -142,6 +153,7 @@ The authoritative implemented interface definitions are maintained under [docs/c
 - `src/lsp.rs` implements protocol capabilities, synchronization, diagnostics, navigation, search, and archive commands.
 - `src/templates.rs` contains the initial manifest, user-owned template and library defaults, and bundled skill registry.
 - `skills/zettelkasten/SKILL.md` is the inspectable bundled skill source.
+- `tests/assets.rs` covers opaque ingestion, schema-2 listings, no-clobber publication, orphan cleanup, relocation, unsupported inputs, and symlink boundaries. Unit tests exercise failed-copy cleanup.
 - `tests/cli.rs` covers authoring, graph output and authored byte ranges, integrity checks, queries, skills, search, and removal blocked by all incoming occurrences, including those in malformed notes.
 - `tests/provider.rs` exercises the complete overlay lifecycle through coherent revisions and a final graph snapshot. Unit tests in `src/provider.rs` cover individual transitions and stale-update rejection.
 - `tests/lsp.rs` tests the language server over framed standard-input and standard-output JSON-RPC with isolated temporary archives and both UTF-8 and UTF-16 positions.
@@ -216,7 +228,9 @@ Closed-file LSP location conversions read saved text for each location. They do 
 
 The executable accepts archive format 3 only and has no migration command or format-1/2 compatibility layer. This is an intentional pre-deployment breaking change. Supplementary Git initialization is accepted but unimplemented; see [Git lifecycle](decisions/git-lifecycle.md).
 
-Queries emit JSON only. CLI locations use UTF-8 byte ranges. Removal does not edit incoming references. Metadata search has no result cap, so broad queries can produce large arrays.
+Queries and asset listings emit JSON only. CLI locations use UTF-8 byte ranges. Removal does not edit incoming references. Metadata search has no result cap, so broad queries can produce large arrays.
+
+Asset staging and destination must share a filesystem. A target subtree mounted on another filesystem fails publication. Sudden termination can leave staging directories outside note namespaces; crash recovery and hostile concurrent directory replacement are not managed.
 
 The optional descriptive template has a presentation dictionary with `thoughts`, `physics`, and `coding`. Tinymist owns dictionary-member completion; `zk lsp` does not inspect dictionaries. Vocabulary policy remains deferred.
 

@@ -50,6 +50,12 @@ enum Command {
         query: QueryCommand,
     },
 
+    /// Copy, list, or remove opaque files in a note's asset namespace.
+    Asset {
+        #[command(subcommand)]
+        asset: AssetCommand,
+    },
+
     /// Remove a Zettel when it has no incoming references.
     Remove {
         /// Zettel ID to remove.
@@ -86,6 +92,22 @@ enum QueryCommand {
 
     /// Search saved Zettel metadata.
     Search { query: String },
+}
+
+#[derive(Debug, Subcommand)]
+enum AssetCommand {
+    /// Copy a regular file into an existing saved note's namespace without overwriting.
+    Add {
+        id: String,
+        source: PathBuf,
+        /// Destination path relative to the note's namespace; defaults to the source basename.
+        #[arg(long, value_name = "RELATIVE-PATH")]
+        name: Option<String>,
+    },
+    /// List stored files recursively as schema-2 JSON, including orphan namespaces.
+    List { id: String },
+    /// Delete exactly one regular file, even if its note no longer exists.
+    Remove { id: String, name: String },
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -167,6 +189,20 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
                 }
                 QueryCommand::Search { query } => {
                     write_json(&provider.search_metadata(&query))?;
+                }
+            }
+        }
+        Command::Asset { asset } => {
+            let archive = discover_archive(cli.archive.as_deref())?;
+            match asset {
+                AssetCommand::Add { id, source, name } => {
+                    let asset = archive.add_asset(&id, &source, name.as_deref())?;
+                    println!("{}", asset.path);
+                }
+                AssetCommand::List { id } => write_json(&archive.list_assets(&id)?)?,
+                AssetCommand::Remove { id, name } => {
+                    let asset = archive.remove_asset(&id, &name)?;
+                    println!("{}", asset.path);
                 }
             }
         }

@@ -78,6 +78,29 @@ zk remove <ID>
 
 Removal fails while incoming references exist. Do not bypass that check by deleting a Zettel directly.
 
+## Attach files
+
+Use the asset commands when a note needs an image, local helper, or Typst fragment:
+
+```sh
+zk asset add <ID> <SOURCE>
+zk asset add <ID> <SOURCE> --name fragments/example.typ
+zk asset list <ID>
+zk asset remove <ID> <RELATIVE-PATH>
+```
+
+Addition requires an existing saved canonical note and copies one regular file without overwriting. It defaults to the source basename; `--name` chooses a safe relative name, including nested paths. Add/remove print `assets/ID/name`. Listing returns a schema-2 array of `note_id`, `name`, and archive-relative `path` values. Source paths resolve from the shell's working directory. No file contents or imports are rewritten, and helper dependencies must be supplied separately.
+
+Insert ordinary Typst project-root paths into the note, with a leading slash:
+
+```typst
+#figure(image("/assets/2603231410/tiger.jpg"), caption: [A tiger])
+#import "/assets/2603231410/helper.typ": draw
+#include "/assets/2603231410/fragments/example.typ"
+```
+
+There is no special asset resolver or implicit ID binding. Asset contents do not create archive links or metadata. Keep meaningful `@ID` references in the note itself. Note removal leaves its assets intact; listing and explicit asset removal still work afterwards. Removal does not prove a file is unused, so inspect known uses before deleting a shared asset. Symlinks and recursive directory deletion are unsupported by the asset commands.
+
 ## Source contract
 
 A Zettel lives at `zettel/YYMMDDHHmm.typ`. Its filename is its identity. `zk.toml` contains only `format = 3`. Read `templates/zettel.typ` before editing metadata: it defines both the starter note and tracked fields. Initialization supplies only this minimal core:

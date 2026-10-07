@@ -1,4 +1,5 @@
 pub mod archive;
+pub mod assets;
 pub mod config;
 mod extract;
 pub mod lsp;

@@ -80,6 +80,14 @@ pub struct ZettelNode {
     pub metadata: BTreeMap<String, Option<MetadataValue>>,
 }
 
+/// A stored file in a note-ID namespace, not a graph node or dependency.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Asset {
+    pub note_id: String,
+    pub name: String,
+    pub path: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {

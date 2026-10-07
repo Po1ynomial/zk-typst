@@ -1,6 +1,6 @@
 # Asset resolution from a Zettel title label
 
-Status: reproduced research, not an accepted asset policy or implemented `zk` feature
+Status: reproduced research. [Explicit-path asset management](../decisions/asset-management.md) subsequently accepts native paths and implements CLI ingestion/list/removal. The resolver prototypes below remain research, not installed helpers.
 
 ## Question
 
@@ -166,4 +166,4 @@ The image fixture is SVG. Raster codecs, unsaved editor overlays, completions, a
 
 Per-note storage and names-only Typst access are separate choices. The former does not require a Typst evaluator in `zk`; the latter requires either explicit Typst context or an ID supplied before evaluation.
 
-Literal paths preserve ordinary Typst authoring and can be inserted by an editor without manual ID entry. An early-bound generated resolver is also ordinary Typst, but needs an explicit creation decision. Callback helpers and a body context are demonstrated alternatives, not accepted archive defaults. No asset command, helper installation, cleanup policy, dependency graph, or asset-specific LSP capability has been approved or implemented here.
+Literal paths preserve ordinary Typst authoring and can be inserted by an editor without manual ID entry. An early-bound generated resolver is also ordinary Typst, but needs an explicit creation decision. Callback helpers and a body context are demonstrated alternatives, not accepted archive defaults. The spike itself implements none of those features. The later [asset-management decision](../decisions/asset-management.md) accepts CLI file lifecycle and retention with native paths, without helpers, a dependency graph, or asset-specific LSP capabilities.

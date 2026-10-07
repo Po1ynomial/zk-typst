@@ -8,6 +8,9 @@ Status: implemented in zk 0.3.0. See the [version matrix](README.md#status) and 
 zk init [--agent-skills] [PATH]
 zk [--archive PATH] new
 zk [--archive PATH] remove ID
+zk [--archive PATH] asset add ID SOURCE [--name RELATIVE-PATH]
+zk [--archive PATH] asset list ID
+zk [--archive PATH] asset remove ID RELATIVE-PATH
 zk [--archive PATH] check [--format text|json]
 zk [--archive PATH] query node ID
 zk [--archive PATH] query links ID
@@ -31,11 +34,11 @@ zk --version
 
 | Operation | stdout | stderr | Exit status |
 | --- | --- | --- | --- |
-| Successful `init`, `new`, or `remove` | Result path followed by a newline | Optional warnings | 0 |
-| Successful query or graph | One complete schema-2 JSON envelope | Optional warnings | 0 |
+| Successful `init`, `new`, `remove`, or asset add/remove | Result path followed by a newline | Optional warnings | 0 |
+| Successful query, graph, or asset list | One complete schema-2 JSON envelope | Optional warnings | 0 |
 | `check --format text` | Human-readable diagnostics and totals | Operational errors or warnings | 0 without integrity errors, otherwise 1 |
 | `check --format json` | One schema-2 diagnostic-list envelope if inspection completes | Operational errors or warnings | 0 without integrity errors, otherwise 1 |
-| Fatal archive, configuration, template, query, or I/O failure | No successful result promised | Human-readable error | 1 |
+| Fatal archive, configuration, template, asset, query, or I/O failure | No successful result promised | Human-readable error | 1 |
 | Removal blocked by incoming references | No successful result path | Blocking source paths and byte ranges | 1 |
 | Argument-parser usage error | No successful result | Usage/error text | 2 |
 | Help or executable version | Requested text | No diagnostic required | 0 |
@@ -113,6 +116,26 @@ Successful initialization prints its root path. The path may be relative and ref
 The template must parse, have exactly one direct labelled level-one title, and contain valid defaults for its tracked fields. Validation occurs before any note is created. Existing notes are never overwritten. Success prints the archive-relative `zettel/ID.typ` path.
 
 `remove ID` requires an existing node and refuses deletion while any incoming authored references remain, including self-references or references in malformed notes. Refusal reports every blocking occurrence's source path and UTF-8 byte range on stderr and leaves the target untouched. Success deletes only the target file and prints its archive-relative path. Removal never edits incoming references or other source files.
+
+## Asset management
+
+Asset namespaces use `assets/ID/`, where ID is the existing ten-digit note ID. Directories are created lazily by asset addition, not by `init` or `new`. Namespaces may contain nested directories. Files remain user-owned and may be edited directly. Other asset-root entries, such as `assets/shared/`, are outside these targeted namespace commands.
+
+`asset add ID SOURCE [--name RELATIVE-PATH]` requires an existing regular canonical saved note file. Malformed note contents do not prevent addition; the command does not load or evaluate the note graph. SOURCE resolves relative to the process working directory, independently of archive selection, and must resolve to a regular file. Explicit source symlinks may resolve to regular files; the command copies their bytes, never the symlink.
+
+Without `--name`, the destination uses the source basename, which must be UTF-8. An explicit name permits copying a source with a non-UTF-8 basename on filesystems that support one. Names are nonempty UTF-8 paths relative to the note namespace, using `/` separators. Absolute paths, empty components, `.`/`..` components, backslashes, and control characters are rejected. Spaces, Unicode, and nested relative paths are supported. Names are literal, with no wildcard expansion.
+
+Addition copies only the supplied file's bytes and creates missing parent directories. It does not preserve filesystem attributes, chase helper imports, rewrite relative imports, deduplicate content, or edit the note. Existing destinations of any kind are never overwritten. Copying stages a complete file outside the ID namespaces before publishing it without clobbering. Failed copies or publication attempts leave no partial destination; empty parent directories may remain. Staging and destination must share a filesystem, otherwise publication fails explicitly.
+
+`asset list ID` recursively returns regular files in one namespace as a schema-2 envelope whose `data` is an array of [asset entries](data.md#asset). Entries sort lexically by namespace-relative name. A missing namespace returns `data: []` and does not create asset directories. ID must be a valid timestamp but need not identify an existing note, so retained orphan namespaces remain inspectable. The result is a filesystem observation, not a transaction against concurrent external edits.
+
+`asset remove ID RELATIVE-PATH` deletes exactly one existing regular file and prints its archive-relative path. It does not expand patterns, remove directories recursively, prune empty directories, or infer whether a file is unused. A missing file is an error. The note need not exist. Stored or namespace symlinks are neither traversed nor removed; users must manage them outside these commands. Listing fails rather than silently omitting symlinks, special files, or unsupported names.
+
+Asset-directory components and stored files must not be symlinks, including links whose targets are inside the archive. Checks assume the archive's single-writer model, not hostile concurrent directory replacement. The archive root itself may be selected through a symlink. Abrupt termination can leave temporary staging directories outside note namespaces; automatic crash recovery is not implemented.
+
+Successful add/remove commands print the archive-relative destination, such as `assets/2603231410/tiger.jpg`. Typst's corresponding project-root path is `/assets/2603231410/tiger.jpg`; the leading slash is added by the author or editor, not by these CLI results. There is no Typst asset resolver, injected ID binding, source insertion, or asset-specific LSP command.
+
+`zk remove ID` leaves asset files untouched. Namespace association does not imply exclusive use: another note can reference the same path. `zk check` currently does not warn about orphan namespaces or attempt missing/unused-asset detection. Tinymist owns ordinary Typst file-loading diagnostics. Asset contents do not create graph nodes, metadata fields, or reference occurrences.
 
 ## Inspection and JSON results
 

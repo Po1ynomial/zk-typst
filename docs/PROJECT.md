@@ -4,6 +4,8 @@
 
 Build a self-contained Zettelkasten engine whose durable state is plain Typst source.
 
+Assets remain ordinary files associated with note IDs; note identity and metadata remain Typst source.
+
 The archive should support creating atomic notes, linking ideas in prose, finding prior notes, following links, inspecting backlinks, and maintaining archive integrity. The `zk` executable provides archive semantics through a scriptable CLI, reusable Rust provider, and editor-neutral language server.
 
 The independently maintained `zk.nvim` repository is one client of this engine. It is not part of this repository or release.
@@ -25,6 +27,8 @@ Agent workers may use optional archive-local operating skills and the same saved
 - An explicit CLI archive path may select an archive outside the current directory.
 - Zettel live in one flat `zettel/` directory.
 - Archive-specific Typst presentation code lives in `lib/`.
+- `zk asset add/list/remove` manages opaque files under `assets/ID/`, creating directories lazily and retaining files after note removal.
+- Authors use explicit Typst paths. The engine does not inject asset helpers or discover transitive dependencies.
 - Source files are canonical. There is no persistent graph cache or metadata index.
 
 ### Zettel
@@ -55,6 +59,9 @@ zk init [--agent-skills] [PATH]
 zk --archive <PATH> ...
 zk new
 zk remove <ID>
+zk asset add <ID> <SOURCE> [--name <RELATIVE-PATH>]
+zk asset list <ID>
+zk asset remove <ID> <RELATIVE-PATH>
 zk check
 zk query node|links|backlinks|search ...
 zk graph --format json
@@ -128,6 +135,7 @@ Version one succeeds when:
 - metadata search returns every matching node in deterministic order;
 - an external process can consume a versioned JSON graph snapshot;
 - clients can reject incompatible ZK protocol versions;
+- assets can be copied without clobbering, listed deterministically, and removed explicitly after their note disappears;
 - copying the archive root preserves all canonical state.
 
 ## Accepted but unimplemented
@@ -141,4 +149,5 @@ Version one succeeds when:
 - Publication and selected-subgraph compilation
 - Authoritative Typst metadata and archive-wide Typst values
 - Shared live access for consumers outside one LSP process
+- Orphan asset-namespace warnings and asset-specific live queries
 - Performance changes justified by measurements on a real archive

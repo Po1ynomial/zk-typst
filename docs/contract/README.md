@@ -2,19 +2,19 @@
 
 These documents define the external interfaces owned by `zk`:
 
-- [CLI](cli.md): invocation, archive selection, streams, exit statuses, and command results.
+- [CLI](cli.md): invocation, archive selection, note/asset lifecycle, streams, exit statuses, and command results.
 - [LSP JSON contract](lsp.md): standard LSP behavior, ZK capabilities, archive-query commands, and diagnostic data.
 - [Shared data schema](data.md): the JSON values used by both interfaces. This is a shared definition, not a third transport.
 
 ## Status
 
-These contracts are implemented in the 0.3.0 development executable. [System](../SYSTEM.md) describes flows and limitations; [Design](../DESIGN.md) describes the shared design. The rationale is recorded in [Template-declared metadata](../decisions/template-schema.md) and [Extensible metadata and external contracts](../decisions/external-contracts.md).
+These contracts are implemented in the 0.3.0 development executable. [System](../SYSTEM.md) describes flows and limitations; [Design](../DESIGN.md) describes the shared design. Asset policy is recorded in [Explicit-path asset management](../decisions/asset-management.md). The metadata rationale is recorded in [Template-declared metadata](../decisions/template-schema.md) and [Extensible metadata and external contracts](../decisions/external-contracts.md).
 
 | Contract | Implemented version | Scope |
 | --- | --- | --- |
 | Executable | 0.3.0 | Development release before deployment |
 | Archive format | 3 | A regular Typst template declares tracked fields through comments |
-| Public data schema | 2 | Shared envelopes and generic typed metadata |
+| Public data schema | 2 | Shared envelopes, generic typed metadata, and additive CLI asset-list entries |
 | ZK editor protocol | 2 | Independent `dataSchemaVersion: 2` discovery |
 
 Archive format 3 intentionally replaces the undeployed format 2. There is no automatic migration or schema-1 downgrade. Public data schema 2 and ZK protocol 2 remain unchanged because the source declaration authority changed, not the retrieved values or request semantics.

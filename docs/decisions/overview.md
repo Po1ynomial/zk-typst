@@ -30,6 +30,7 @@ The design adapts the workflow described in the introduction to the Zettelkasten
 ## Components
 
 - `zk` initializes, creates, checks, removes, queries, and snapshots archives.
+- Asset commands copy, list, and remove opaque files in note-ID namespaces with ordinary Typst paths.
 - The provider parses source, retains the graph, and manages live overlays.
 - `zk lsp` exposes live archive semantics through a versioned editor protocol.
 - `lib/zettel.typ` renders archive constructs and handles ten-digit references.
@@ -40,6 +41,7 @@ The design adapts the workflow described in the introduction to the Zettelkasten
 The archive, provider, CLI, and language server are implemented as described in [System](../SYSTEM.md). Release 0.3.0 uses archive format 3: a regular Typst template declares tracked fields through comments, initialization supplies only the stable core, and saved schema changes reload atomically. [Template-declared metadata](template-schema.md) records the current decision. [Extensible metadata](external-contracts.md) and the authoritative [external contracts](../contract/README.md) define generic fields, data schema 2, and ZK protocol 2. Earlier source-contract decisions remain historical. [Supplementary Git initialization](git-lifecycle.md) is accepted but unimplemented. Format migration has no command yet. See [Version-one architecture](v1-architecture.md) and [Repository boundaries](repository-boundaries.md) for ownership decisions.
 
 - [External CLI, LSP, and shared data contracts](../contract/README.md)
+- [Explicit-path asset management](asset-management.md)
 - [Template-declared metadata](template-schema.md)
 - [Extensible metadata and external contracts](external-contracts.md)
 - [Configurable source contracts and user-owned templates](source-contracts.md)

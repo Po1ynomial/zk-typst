@@ -78,9 +78,17 @@ An opt-in initialization may also create user-owned agent skills:
       SKILL.md
 ```
 
-Other directories are allowed; only configured source inputs and canonical notes have archive semantics.
+Other directories are allowed. `assets/ID/` namespaces have explicit file-lifecycle commands but no graph semantics.
 After optional skill installation, `zk` does not manage `.agents/` or other
 additional files.
+
+## Asset storage
+
+Assets use `assets/ID/name`, with nested namespace-relative names permitted. Directories are created lazily. The engine copies opaque bytes, lists regular files deterministically, and removes an explicitly named file. Asset commands operate on saved filename identity without evaluating or loading the note graph.
+
+Authors use native Typst paths such as `/assets/2603231410/tiger.jpg`. No contextual resolver, generated ID binding, source insertion, dependency graph, or loader wrapper is installed. [The asset-resolution research](research/asset-resolution.md) explains the authoring trade-off; [Explicit-path asset management](decisions/asset-management.md) records the accepted policy. Exact CLI behavior and payloads live under [Contract](contract/cli.md#asset-management).
+
+Namespace association is not exclusive ownership. Note removal retains assets; listing and explicit removal work for orphan namespaces. Symlinks in stored namespaces, traversal, special files, and clobbering are rejected. Copying stages outside ID namespaces before no-clobber publication. Direct file edits remain valid canonical state. Asset bytes and references within them do not enter the graph.
 
 ## Agent operating skills
 
@@ -286,6 +294,7 @@ The current executable accepts archive format 3 only. Release 0.3.0 intentionall
 
 ## Deferred design
 
+- Orphan asset-namespace reporting and asset-specific live queries
 - Controlled vocabulary and category derivation
 - Structural node roles
 - Aggregate or selected-subgraph Typst compilation

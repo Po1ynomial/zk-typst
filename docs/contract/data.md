@@ -15,7 +15,7 @@ Every complete CLI archive JSON result and successful LSP archive-query result h
 }
 ```
 
-`schema_version` is the integer 2. `data` is the command-specific value: a node, a list of nodes or links, a list of diagnostics, or a graph snapshot. It is not always an object. No other envelope property is required. Consumers must reject an unsupported schema version before interpreting `data`.
+`schema_version` is the integer 2. `data` is the command-specific value: a node, a list of nodes or links, a list of diagnostics or assets, or a graph snapshot. It is not always an object. No other envelope property is required. Consumers must reject an unsupported schema version before interpreting `data`.
 
 An empty list result is `data: []`, not `null`. A missing queried node is an operation error, not a successful `data: null` response. Error delivery belongs to the CLI or JSON-RPC transport contract. Each response reflects one coherent provider view; separate invocations or requests are not a transaction with one another and need not observe the same source state.
 
@@ -137,6 +137,35 @@ The example's title and summary ranges correspond to the first two lines of this
 All four properties are required. `source` identifies an existing node. `target` is a literal ten-ASCII-digit reference address, which may be missing or not represent a valid calendar timestamp. `resolution` is `resolved` when a matching node exists in the current view, otherwise `missing`. A malformed target note still exists and therefore resolves. Missing targets do not create synthetic nodes.
 
 There is one logical link per ordered source/target pair. `spans` is nonempty and retains every authored occurrence, ordered by `start`, then `end`; each range covers the entire `@ID` token in the source node. Repeated occurrences are not parallel logical links. Literal references contribute links wherever they occur in source markup, regardless of metadata configuration; strings, raw text, comments, and generated references do not.
+
+## Asset
+
+An asset entry has these required string properties:
+
+| Property | Meaning |
+| --- | --- |
+| `note_id` | Valid ten-digit note ID naming the namespace, not necessarily an existing node |
+| `name` | UTF-8 path relative to that namespace, with `/` separators |
+| `path` | Archive-relative `assets/ID/name` path, without a leading slash |
+
+`name` is nonempty and contains no empty, `.` or `..` components, backslashes, or control characters. Nested paths, spaces, and Unicode are allowed. Entries describe regular files. Arrays sort lexically by `name` using UTF-8 byte order. A missing or empty namespace produces an empty array.
+
+Example asset-list result:
+
+```json
+{
+  "schema_version": 2,
+  "data": [
+    {
+      "note_id": "2603231410",
+      "name": "tiger.jpg",
+      "path": "assets/2603231410/tiger.jpg"
+    }
+  ]
+}
+```
+
+Namespace association is not a reference or exclusive-ownership claim. Assets are not nodes and do not appear as metadata or links in graph snapshots. Their bytes remain filesystem state rather than a persistent derived index. Listing is CLI-only; adding this payload does not change existing schema-2 values or introduce an LSP asset-query command.
 
 ## Diagnostic
 
