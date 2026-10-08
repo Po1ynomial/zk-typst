@@ -19,7 +19,7 @@ test *args:
 
 # Check repository guides, agent instructions, and bundled skills.
 docs:
-    just _run docs rumdl check AGENTS.md docs skills
+    just _run docs rumdl check README.md GLOSSARY.md docs skills
 
 # Capture once, print diagnostics only on failure, and preserve the exit status.
 [private]

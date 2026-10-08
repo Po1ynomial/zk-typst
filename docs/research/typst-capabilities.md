@@ -1,8 +1,8 @@
 # Typst capability spikes
 
-## Version-one outcome
+## Provider outcome
 
-These spikes map what Typst and Tinymist can do. Version one does not use evaluated Typst metadata as provider state. The accepted design keeps the live graph authoritative in Rust and reserves Typst archive computation for later compilation paths. See [Version-one architecture](../decisions/v1-architecture.md).
+These spikes map what Typst and Tinymist can do. The accepted [source authority decision](../adr/source-authority.md) keeps the live graph authoritative in Rust rather than evaluated Typst metadata. The cases below include historical fixed-field conventions; they are compiler experiments, not the current archive contract. Current source declarations are specified in the [CLI contract](../contract/cli.md#initialization-and-source-declarations).
 
 [Asset resolution from a Zettel title label](asset-resolution.md) records a separate, newer spike on contextual lookup, native file-loading operations, and context-free authoring limits. Its compiler versions and reproduction artifacts are documented separately.
 
@@ -10,7 +10,9 @@ These spikes map what Typst and Tinymist can do. Version one does not use evalua
 
 - Typst CLI 0.15.1
 - Tinymist 0.15.2 with embedded Typst 0.15.0
-- Scratch cases: `spikes/`
+- Scratch cases: untracked local directories under `spikes/`
+
+Documentation paths cited below identify reference material from the recorded compiler environment, not files in this repository. The public findings do not require the local spike artifacts to be present.
 
 ## 1. Intercepting Zettel references
 
@@ -67,7 +69,7 @@ This proves recognition and replacement only. It does not yet prove that Typst c
 
 ### Design relevance
 
-The archive library can own the syntax boundary and rendered fallback for ten-digit references. The earlier claim that these references can be neutralized for Typst and Tinymist is realistic. The ownership of title resolution, target validation, links, and graph operations remains open.
+This experiment established the reference interception used by the archive library. The provider decision subsequently placed title resolution, target validation, links, and graph operations in Rust; their ownership is no longer open. [Design](../DESIGN.md#source-and-presentation) describes the current boundary.
 
 Confidence: high for the tested compiler versions.
 
@@ -111,9 +113,9 @@ This does not establish how an independently compiled Zettel gains access to hea
 
 ### Design relevance
 
-This capability is outside the version-one boundary. A single Zettel lacks the archive context needed for title resolution, and full dependency resolution or aggregate compilation is deferred. Version one uses the Typst handler only to prevent unresolved-reference diagnostics. `zk lsp` resolves IDs and titles, and editor clients may display titles as decorations.
+This capability is outside `zk`'s boundary. A single Zettel lacks the archive context needed for title resolution, and full dependency resolution or aggregate compilation is deferred. Typst handlers are used only to prevent unresolved-reference diagnostics. `zk lsp` resolves IDs and titles, and editor clients may display titles as decorations.
 
-Confidence: high for the tested compiler versions and same-document targets. Relevance to version one: none beyond confirming that the deferred compilation path is possible in principle.
+Confidence: high for the tested compiler versions and same-document targets. Relevance: none beyond confirming that the deferred compilation path is possible in principle.
 
 ## 3. Proposed metadata call forms
 
@@ -150,7 +152,7 @@ This spike proves that the forms evaluate and render. It does not prove that the
 
 ### Design relevance
 
-The proposed visible metadata syntax is realistic. `lib/zettel.typ` can own rendering and can reject unknown category field names. `zk` still needs to check source-level archive contracts unless later spikes show that Typst can enforce them reliably and expose suitable diagnostics.
+These historical metadata conventions can render through ordinary Typst helpers. They are now optional user-owned presentation choices, not built-in fields or library defaults. The provider checks bounded source declarations; Tinymist handles dictionary membership and ordinary language diagnostics. [Template-declared metadata](../adr/template-declared-metadata.md) records the current choice.
 
 Confidence: high for Typst 0.15.1 and Tinymist's embedded Typst 0.15.0.
 
@@ -158,7 +160,7 @@ Confidence: high for Typst 0.15.1 and Tinymist's embedded Typst 0.15.0.
 
 ### Question
 
-Can the Typst library enforce the requirement that each Zettel contains exactly one `#abstract[...]` call?
+Could the Typst library enforce the earlier format-1 requirement that each Zettel contain exactly one `#abstract[...]` call?
 
 ### Documentation
 
@@ -196,7 +198,7 @@ This duplicates a check that `zk lsp` can perform from source with precise range
 
 ### Design relevance
 
-Typst can enforce this invariant, but capability alone does not make it the best owner. The choice is between defense in depth through Typst and one precise implementation in `zk`. Performance and editor behavior of several such validation queries remain untested.
+This experiment showed a validation alternative for the historical required-abstract policy. Current metadata is optional, and there is no built-in abstract field. The provider owns precise source-level validation; the spike's evaluation cost and editor behavior at archive scale remain untested.
 
 Confidence: high for correctness in the tested cases; low on editor cost and diagnostic usability at archive scale.
 
@@ -249,7 +251,7 @@ The metadata object can preserve rich Typst content rather than reducing title a
 
 ### Design relevance
 
-This spike established a possible evaluation-first pipeline for valid documents, with source-level extraction supplying missing link ranges. That alternative was not adopted for version one. Rust owns metadata semantics and malformed-buffer recovery; evaluated metadata remains relevant to later compilation paths.
+This spike established a possible evaluation-first pipeline for valid documents, with source-level extraction supplying missing link ranges. That alternative was not adopted. Rust owns metadata semantics and malformed-buffer recovery; evaluated metadata remains relevant to later compilation paths.
 
 Confidence: high for valid documents on the tested versions.
 
@@ -315,7 +317,7 @@ Typst cannot:
 - expose authored byte or LSP source ranges through ordinary metadata queries;
 - recover an archive value when any included file has a syntax or evaluation error.
 
-`zk` must therefore provide the project root, ordered file manifest, current source overlays, and literal reference ranges. Large manifests and occurrence tables should be exposed through the embedded Typst world's virtual files rather than command-line `sys.inputs` strings.
+An evaluation based `zk` must therefore provide the project root, ordered file manifest, current source overlays, and literal reference ranges. Large manifests and occurrence tables should be exposed through the embedded Typst world's virtual files rather than command-line `sys.inputs` strings.
 
 ### Comparison
 
@@ -325,7 +327,7 @@ Independent evaluation isolates failures and supports partial archive updates na
 
 ### Design relevance
 
-An archive-wide Typst value is feasible for valid inputs, but version one does not use it as provider state. The accepted v1 boundary keeps the live graph authoritative in Rust and limits archive metadata to direct declarative source forms. Central Typst metadata remains relevant to later compilation, reporting, and publication paths.
+An archive-wide Typst value is feasible for valid inputs, but will not be used as provider state now. The boundary keeps the live graph authoritative in Rust and limits archive metadata to direct declarative source forms. Central Typst metadata remains relevant to later compilation, reporting, and publication paths.
 
 This direction avoids aggregate compilation in the editing loop, preserves malformed-buffer recovery and exact ranges, and requires no live data channel between `zk lsp` and Tinymist.
 
@@ -346,6 +348,8 @@ Tinymist's hover implementation traces non-literal expressions through the activ
 ### LSP probe
 
 A temporary JSON-RPC client started `tinymist lsp`, initialized a workspace, opened a Typst document, changed configuration, sent full-text buffer changes, and requested `textDocument/hover`.
+
+Unlike the named compiler spikes above, this probe has no retained client, fixtures, or raw logs under `spikes/`. The observations below are the surviving record; there is no preserved reproduction command. Reproduction would require reconstructing the client, documents, and configuration payloads against the recorded Tinymist version.
 
 For injected input, the document decoded `sys.inputs.archive` and inserted the result into a metadata element. Hover first returned:
 
@@ -379,6 +383,6 @@ Changing `typstExtraArgs` is not a cheap streaming channel. The probe logs showe
 
 ### Design relevance
 
-These capabilities are useful for later Typst-native archive inspection. Version one does not inject the live Rust graph into Tinymist or use sampled hover as a provider API.
+These capabilities are useful for later Typst-native archive inspection. `zk` does not inject the live Rust graph into Tinymist or use sampled hover as a provider API.
 
-Confidence: high for Tinymist 0.15.2.
+Confidence: high for the recorded observations on Tinymist 0.15.2. Independent reproduction and inspection of the original logs are limited by the missing probe artifacts.

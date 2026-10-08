@@ -1,26 +1,20 @@
 ---
 name: zettelkasten
 description: Work with this Typst Zettelkasten archive. Use when searching, creating, linking, checking, or removing Zettel.
-compatibility: Requires the zk command-line tool.
+compatibility: Requires zk with archive format 3, public data schema 2, and the note, query, check, graph, and asset CLI commands described here.
 ---
 
 # Zettelkasten
 
 ## What you are doing
 
-A Zettelkasten is a personal tool for thinking and writing. Its purpose is to build a web of thoughts whose parts can be revisited, connected, and reused over time. Connection matters more than collecting a large number of notes.
+A Zettelkasten is the owner's personal thinking environment. Develop one principal thought per Zettel, write it in your own words, and preserve the context needed to revisit it. Atomicity is about independently addressable ideas, not a word-count rule. Quotations may support the thought but do not replace processing it.
 
-A Zettel is the smallest addressable unit in that web. In this archive, each Zettel should develop one principal idea, such as a claim, argument, concept, observation, or question. Atomicity is a guide rather than a word-count rule. Split a note when its ideas need to be addressed or connected independently.
+A note ID is a stable address, independent of its title. A reference is one authored occurrence pointing to that address; a link is the directed relationship represented by one or more occurrences. Explain in prose why the target matters. Backlinks expose incoming relationships, not reciprocal links.
 
-Write in your own words. Do not preserve information merely because it looks useful. Explain what it means, why it matters, or how it bears on the question at hand. Quotations and source material can support a Zettel, but they do not replace this processing.
+Search provides entry points. Follow connections and revise earlier thoughts when needed. Structure notes arrange and explain relationships as ordinary Zettel, without a special node type. Do not add links merely to increase connectivity or invent a vocabulary policy.
 
-Each Zettel has a stable timestamp ID. The ID is its address and does not change when its title changes. References to that address make the archive a navigable hypertext rather than a folder of independent documents.
-
-A link records a relationship between thoughts. The prose around a link should state why the target is relevant. A bare link leaves that relationship for a future reader to guess. Look for meaningful connections when adding a Zettel, but do not manufacture links that have no useful explanation.
-
-Search provides entry points into the web. Follow links and backlinks from a promising entry instead of treating search results as the whole organization. Structure can grow from the bottom up. An ordinary Zettel may act as a structure note by arranging links and explaining how their ideas relate; it requires no special file type.
-
-This is the human owner's personal thinking environment, not a generic encyclopedia. Preserve the owner's terminology, perspective, and existing writing practice. Use the current task as the reason for working in the archive while leaving useful ideas available for later work.
+Typst source keeps prose, notation, and user-owned presentation together. The engine supplies retrieval and integrity checks, not intellectual judgment or rendering. Preserve the owner's terminology and perspective rather than producing a generic encyclopedia. Passing `zk check` does not establish writing quality.
 
 This workflow adapts the principles in [Introduction to the Zettelkasten Method](https://zettelkasten.de/introduction/) to this archive's Typst format and reference rules.
 
@@ -37,6 +31,10 @@ This workflow adapts the principles in [Introduction to the Zettelkasten Method]
 ## Query the archive
 
 Run commands inside the archive or pass `--archive <PATH>`.
+
+This skill expects archive format 3 and JSON data schema 2. Read `zk.toml` before operating on an existing archive, and reject unsupported `schema_version` values before interpreting JSON results. The executable's version alone does not establish interface compatibility. Installed skills are user-owned and are never refreshed automatically; review an installed copy when engine or archive requirements change.
+
+Every archive-loading command, including queries, checks, asset commands, and LSP startup, validates the saved template. If it is missing, loading creates a minimal core and disables tracking of additional fields without rewriting notes. Inspection can therefore write a file. A present invalid template fails explicitly and is never replaced. Inspect template availability before commands when preserving existing tracking matters.
 
 Search metadata with a specific term:
 
@@ -99,7 +97,7 @@ Insert ordinary Typst project-root paths into the note, with a leading slash:
 #include "/assets/2603231410/fragments/example.typ"
 ```
 
-There is no special asset resolver or implicit ID binding. Asset contents do not create archive links or metadata. Keep meaningful `@ID` references in the note itself. Note removal leaves its assets intact; listing and explicit asset removal still work afterwards. Removal does not prove a file is unused, so inspect known uses before deleting a shared asset. Symlinks and recursive directory deletion are unsupported by the asset commands.
+There is no special asset resolver or implicit ID binding. Asset contents do not create archive links or metadata. Keep meaningful `@ID` references in the note itself. Note removal leaves its assets intact; listing and explicit asset removal still work afterwards. Removal does not prove a file is unused, so inspect known uses before deleting a shared asset. Stored namespace symlinks and recursive directory deletion are unsupported. An explicitly supplied source symlink to a regular file copies the target bytes.
 
 ## Source contract
 
@@ -109,16 +107,16 @@ A Zettel lives at `zettel/YYMMDDHHmm.typ`. Its filename is its identity. `zk.tom
 #import "../lib/zettel.typ": zettel
 #show: zettel
 
-= Title <YYMMDDHHmm>
+= Untitled <new>
 ```
 
-Additional metadata is optional and user-owned. In the template, a standalone comment such as `// @zk-field "summary" kind=markup` above `#summary[]` tracks that direct call as the field `summary`. Other supported shapes are positional string arguments, one literal string array, and direct field access. The comment declares the field name and kind; the element supplies its selector and starter value.
+A metadata field is an archive-selected attribute. A declaration defines its tracking rule in the template; an occurrence is an authored use in a Zettel; a value is the retrieved data. Additional metadata is optional and user-owned. In the template, a standalone comment such as `// @zk-field "summary" kind=markup` above `#summary[]` declares tracking of that direct call as the field `summary`. Other supported shapes are positional string arguments, one literal string array, and direct field access. The comment declares the field name and kind; the element supplies its selector and starter value.
 
 `zk new` removes successfully parsed declaration comments. Existing notes need no annotations, and comments within notes never define tracking. Removing a template declaration disables extraction without rewriting notes. Abstract, keywords, and category are optional conventions, not built-in fields. Use whatever the archive's current template declares, and do not invent presentation helpers or vocabulary policy.
 
-Exactly one direct level-one title heading is required, and its label must equal the filename stem. Each configured metadata field may be omitted, but may be declared at most once. Unconfigured fields are not emitted. Configured fields absent from a note are `null`; malformed or repeated declarations are also `null` with a diagnostic naming the field. Authored empty values remain distinct. They may appear in any order and anywhere at the direct top level, among prose, imports, and styling. Imports and show rules are user presentation choices. Markup metadata and the rest of the note may contain unrestricted Typst.
+Exactly one direct level-one title heading is required, and its label must equal the filename stem. Each configured metadata field may have zero or one occurrence in a note. Unconfigured fields are not emitted. Configured fields absent from a note have `null` values; malformed or repeated occurrences also yield `null` with a diagnostic naming the field. Authored empty values remain distinct. Metadata occurrences may appear in any order and anywhere at the direct top level, among prose, imports, and styling. Imports and show rules are user presentation choices. Markup metadata and the rest of the note may contain unrestricted Typst.
 
-`content-call` retrieves one literal content block as markup; `string-arguments-call` retrieves positional string literals as a string list; `field-access` retrieves a literal member name as a string. The array-call shape retrieves one literal string-array argument, such as `#tags(("one", "two"))`. Any configured field can use any supported form. Field names have no implicit engine role. Do not substitute computed values, spreads, aliases, imported declarations, or nested calls for the configured direct source forms. `zk` does not evaluate Typst to retrieve metadata.
+A literal content-block call supplies `markup`; positional string arguments or one literal string-array argument, such as `#tags(("one", "two"))`, supply `string-list`; direct field access supplies `string`. The starter element must match its declared kind. Field names have no implicit engine role. Do not substitute computed values, spreads, aliases, imported declarations, or nested calls for the configured direct source forms. `zk` does not evaluate Typst to retrieve metadata.
 
 A literal ten-digit `@ID` creates a directed Zettel link. Generated references, strings, raw blocks, and comments do not create links. `zk lsp` handles archive relations and metadata; Tinymist handles ordinary Typst language features, compilation, and dictionary-member completion.
 

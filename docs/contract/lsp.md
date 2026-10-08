@@ -1,7 +1,5 @@
 # LSP JSON contract
 
-Status: implemented in zk 0.3.0 with ZK protocol 2 and data schema 2. See the [version matrix](README.md#status).
-
 This document defines the editor-neutral companion server launched by `zk lsp`. It uses [LSP 3.17](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) over JSON-RPC 2.0. Standard requests and notifications retain their LSP shapes. Only ZK archive-query results use the shared archive-data envelope.
 
 ## Transport, archive, and lifecycle
@@ -40,7 +38,7 @@ Clients must ignore unknown capability properties and feature flags. Missing fea
 | `archiveQueries` | The three ZK execute commands below are supported and advertised |
 | `referenceCompletion` | Archive ID/title completion is supported through standard completion |
 | `referenceTitleDecorations` | Queries expose authored reference spans and core target titles sufficient for client-owned title decorations |
-| `categoryCompletion` | Legacy optional flag; false in this target because dictionary-member completion belongs to Tinymist |
+| `categoryCompletion` | Legacy optional flag; false in this implementation because dictionary-member completion belongs to Tinymist |
 
 Reference-title decoration data requires archive queries. There is no separate decoration request, pushed decoration stream, or prescribed editor presentation.
 
@@ -153,4 +151,4 @@ The standard diagnostic properties are:
 
 All four properties of this `data` object are required. `field` and `byte_range` may be `null` with the same meanings as shared diagnostics. The data object is not a query-result envelope and contains no nested `data` property. Its byte range stays UTF-8 even when standard diagnostic positions use UTF-16. Consumers must ignore additional properties and reject or leave uninterpreted an unsupported data schema version.
 
-Generic `syntax.error` and `syntax.warning` diagnostics are not published by `zk lsp`. Tinymist owns general Typst syntax, bindings, imports, types, dictionary-member completion, rendering, and compilation. `zk` still reports missing titles, identity disagreement, malformed or duplicate configured declarations, and dangling archive references. Parsing full source internally does not grant the archive server responsibility for general Typst language intelligence.
+Generic `syntax.error` and `syntax.warning` diagnostics are not published by `zk lsp`. Tinymist owns general Typst syntax, bindings, imports, types, dictionary-member completion, rendering, and compilation. `zk` still reports missing titles, identity disagreement, malformed or repeated configured metadata occurrences, and dangling archive references. Parsing full source internally does not grant the archive server responsibility for general Typst language intelligence.

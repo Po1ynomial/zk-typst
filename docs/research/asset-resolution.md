@@ -1,6 +1,6 @@
 # Asset resolution from a Zettel title label
 
-Status: reproduced research. [Explicit-path asset management](../decisions/asset-management.md) subsequently accepts native paths and implements CLI ingestion/list/removal. The resolver prototypes below remain research, not installed helpers.
+Status: reproduced research. [Explicit-path asset management](../adr/explicit-asset-paths.md) subsequently accepts native paths and implements CLI ingestion/list/removal. The resolver prototypes below remain research, not installed helpers.
 
 ## Question
 
@@ -32,7 +32,7 @@ These conclusions do not select between user-managed assets, a shared directory,
 
 ## Environment and provenance
 
-The curated artifacts are under [spikes/08-asset-resolution]. They were promoted from temporary session experiments and re-run from their repository location.
+The curated artifacts are under `spikes/08-asset-resolution/`, an untracked local directory. They were promoted from temporary session experiments and re-run from that location. This public note preserves the findings without depending on those artifacts being available in a clone.
 
 | Component | Recorded value |
 | --- | --- |
@@ -50,7 +50,7 @@ These are compiler and metadata-query probes. Tinymist was exercised through its
 
 ## Method
 
-Run from the repository root:
+For local reproduction, when the untracked curated artifacts are present, run from the repository root:
 
 ```sh
 spikes/08-asset-resolution/run.sh
@@ -166,4 +166,4 @@ The image fixture is SVG. Raster codecs, unsaved editor overlays, completions, a
 
 Per-note storage and names-only Typst access are separate choices. The former does not require a Typst evaluator in `zk`; the latter requires either explicit Typst context or an ID supplied before evaluation.
 
-Literal paths preserve ordinary Typst authoring and can be inserted by an editor without manual ID entry. An early-bound generated resolver is also ordinary Typst, but needs an explicit creation decision. Callback helpers and a body context are demonstrated alternatives, not accepted archive defaults. The spike itself implements none of those features. The later [asset-management decision](../decisions/asset-management.md) accepts CLI file lifecycle and retention with native paths, without helpers, a dependency graph, or asset-specific LSP capabilities.
+Literal paths preserve ordinary Typst authoring and can be inserted by an editor without manual ID entry. An early-bound generated resolver is also ordinary Typst, but needs an explicit creation decision. Callback helpers and a body context are demonstrated alternatives, not accepted archive defaults. The spike itself implements none of those features. The later [asset-management decision](../adr/explicit-asset-paths.md) accepts CLI file lifecycle and retention with native paths, without helpers, a dependency graph, or asset-specific LSP capabilities.

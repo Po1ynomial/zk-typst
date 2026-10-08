@@ -1,7 +1,5 @@
 # Shared data schema 2
 
-Status: implemented in zk 0.3.0. See the [version matrix](README.md#status).
-
 This schema defines archive JSON values shared by the [CLI](cli.md) and [LSP archive-query commands](lsp.md#archive-query-commands). Standard LSP messages retain their standard types and are not wrapped in archive envelopes.
 
 ## Envelope
@@ -45,7 +43,27 @@ CLI values address saved source observed by that invocation. LSP archive-query v
 
 All three properties are required. `source` is the exact inner Typst fragment, without the enclosing heading syntax or content-block brackets. `range` addresses precisely that fragment. `text` is the deterministic, trimmed search/display projection, not evaluated or rendered Typst.
 
-The projection concatenates text and whitespace, projects emphasis and strong content recursively, uses raw-text contents, preserves literal references, equations, and code expressions as source, and omits comments. Headings, lists, and other structures inside a content block are permitted and remain available in the exact source. This is not a promise of a plain-text equivalent of arbitrary evaluated Typst.
+The projection walks parsed markup in source order using these rules:
+
+- Markup containers concatenate their projected children. Emphasis and strong elements recursively project only their inner markup, without their delimiters.
+- Space, paragraph-break, and explicit line-break elements append one ASCII space only when output is nonempty and does not already end in an ASCII space.
+- Raw elements append their parsed line contents without delimiters or language tags. Between raw lines, they apply the same conditional ASCII-space rule. Whitespace inside a raw line is preserved.
+- Line and block comments encountered by this walk append nothing, including no replacement space.
+- Every other element appends its exact source without recursively projecting its children. This includes literal references, equations, code expressions, headings, and lists. Comments and whitespace nested inside these retained elements therefore remain in `text`.
+
+The final output is trimmed of leading and trailing Unicode whitespace. Whitespace inside retained source is not globally collapsed. Headings, lists, and other structures inside a content block are permitted, but the projection is not a plain-text equivalent of arbitrary evaluated Typst.
+
+These projection examples pair exact inner `source` with `text`, using JSON escapes for newlines. They omit ranges and are not complete markup values:
+
+```json
+[
+  {"source": "A  _small_\n\n*thought*", "text": "A small thought"},
+  {"source": "A/* omitted */B", "text": "AB"},
+  {"source": "```\na\nb\n```", "text": "a b"},
+  {"source": "`raw` @2603231410 $x^2$ #code", "text": "raw @2603231410 $x^2$ #code"},
+  {"source": "#box[A /* retained */ B]", "text": "#box[A /* retained */ B]"}
+]
+```
 
 Changing the projection's meaning is a contract change because it changes search behavior. Strings and string-list metadata do not acquire markup projection implicitly.
 
@@ -61,9 +79,7 @@ A non-null metadata entry has required `kind` and `value` properties:
 
 The kinds describe values, not Typst AST matching forms. Multiple source forms may produce the same kind. String-list order, spelling, and duplicate values are preserved; values are not sorted, deduplicated, normalized, or checked against a vocabulary.
 
-Supplementary kinds may be added under the [compatibility rules](README.md#compatibility-rules). A consumer that does not understand a kind must not interpret it as one of the above. Known kinds must have the specified value types. Extra object properties may be ignored.
-
-Markup ranges address inner content. Schema 2 does not require declaration or per-item ranges for string and string-list values; diagnostics still carry authored ranges where a relevant range exists. Optional source-location properties could be added later without changing the existing meanings.
+Markup ranges address inner content. Schema 2 does not require occurrence or per-item ranges for string and string-list values; diagnostics still carry authored ranges where a relevant range exists. Optional source-location properties could be added later without changing the existing meanings.
 
 ## Node
 
@@ -80,7 +96,7 @@ A canonical filename creates a node even when its contents are malformed. A titl
 
 Metadata field names are case-sensitive, nonempty strings independent of source identifier spellings. They are not an enumeration of reserved engine fields. `abstract`, `keywords`, and `category` are optional template examples, not built-in or privileged node properties. Names inside `metadata` do not replace core node properties.
 
-Every declared field appears in each node's metadata map. A field absent from a note, malformed, or repeated is `null`. Malformed or repeated declarations additionally produce diagnostics naming that field; ordinary absence does not. An unconfigured field is not emitted. With no metadata declarations, every node has `metadata: {}`.
+Every field declared in the template appears in each node's metadata map. A field with no occurrence in a note, a malformed occurrence, or repeated occurrences has a `null` value. Malformed or repeated occurrences additionally produce diagnostics naming that field; ordinary absence does not. An unconfigured field is not emitted. With no template metadata declarations, every node has `metadata: {}`.
 
 An authored empty markup fragment is a non-null markup value with empty source/text and a zero-length range. An authored empty list is a non-null `string-list` with `value: []`. Internal source-generation counters are not required public node properties and must not be used as persistent note identity.
 
@@ -189,8 +205,8 @@ Custom field names belong in `field`, not in diagnostic codes. The initial code 
 | `metadata.title` | Missing or repeated direct level-one title |
 | `metadata.id_label` | Title lacks its filename ID label |
 | `metadata.id_mismatch` | Title label disagrees with filename identity |
-| `metadata.invalid_shape` | Recognized field cannot be retrieved using its declared source form |
-| `metadata.duplicate` | More than one declaration of a configured field |
+| `metadata.invalid_shape` | Recognized metadata occurrence cannot be retrieved using the field's declared source form |
+| `metadata.duplicate` | More than one occurrence of a configured metadata field in a Zettel |
 | `reference.dangling` | Authored reference has no target node |
 | `syntax.error` | Generic Typst syntax error, saved-state output only |
 | `syntax.warning` | Generic Typst syntax warning, saved-state output only |

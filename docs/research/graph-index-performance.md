@@ -1,6 +1,6 @@
 # Graph index performance
 
-Status: accepted
+Status: recorded prototype benchmark; its recommendation was adopted by the [eager graph retention decision](../adr/eager-derived-graph.md). These are not measurements of the current executable.
 
 ## Question
 
@@ -97,7 +97,7 @@ The full graph with one million source ranges used less than 100 MiB. The source
 
 Retained syntax trees are different. Their memory depends heavily on markup density and becomes expensive quickly. Closed-file source text and syntax trees should be discarded after extraction. Open-buffer syntax trees can be loaded on demand and updated incrementally.
 
-## Recommendation
+## Recommendation from the spike
 
 Use an eager global graph with lazy source hydration:
 

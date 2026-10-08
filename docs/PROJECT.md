@@ -1,153 +1,87 @@
 # Project
 
-## Goal
+## Goal and motivation
 
-Build a self-contained Zettelkasten engine whose durable state is plain Typst source.
+Build a self-contained Zettelkasten engine whose durable state is plain Typst source. The archive supports developing atomic thoughts, explaining connections in prose, revisiting prior thinking, and keeping references valid over many years.
 
-Assets remain ordinary files associated with note IDs; note identity and metadata remain Typst source.
-
-The archive should support creating atomic notes, linking ideas in prose, finding prior notes, following links, inspecting backlinks, and maintaining archive integrity. The `zk` executable provides archive semantics through a scriptable CLI, reusable Rust provider, and editor-neutral language server.
-
-The independently maintained `zk.nvim` repository is one client of this engine. It is not part of this repository or release.
+The owner supplies the intellectual judgment. The engine supplies creation, retrieval, navigation, and integrity checks without becoming an editor, an autonomous organizer, or a publisher. [Philosophy](PHILOSOPHY.md) elaborates this doctrine and its relationship to Typst; the [glossary](../GLOSSARY.md) defines the domain terms.
 
 ## Users
 
-The version-one user is a single person maintaining one archive on one machine over many years. They may work through shell commands, an LSP client, or another consumer of the JSON graph.
+The initial user is a single person maintaining one archive on one machine. They may work through shell commands, an LSP client, or another consumer of the saved JSON graph.
 
-Agent workers may use optional archive-local operating skills and the same saved-state CLI available to the user. Live unsaved state belongs to the client session that owns the corresponding `zk lsp` process.
+Agent workers use the same saved-state operations and may receive optional archive-local operating skills. Unsaved source belongs to the client session that owns its language-server process.
 
-## Current scope
+## Scope
 
-### Archive
+- A relocatable archive of Typst Zettel and ordinary associated assets beneath one root.
+- Stable note identity, authored directed links, backlinks, and archive integrity checks.
+- A user-owned template for creation and optional tracked metadata, without engine-defined category or keyword policy.
+- A noninteractive CLI for note and asset lifecycle, metadata queries, and saved graph snapshots.
+- A reusable Rust provider and editor-neutral language server for live archive semantics.
+- Complementary use with Tinymist for general Typst language intelligence.
+- Optional, user-owned agent operating skills rather than engine-owned orchestration.
 
-- One directory is one archive and one ID namespace.
-- `zk.toml` marks the root and contains only `format = 3`. The fixed `templates/zettel.typ` declares tracked metadata through comments.
-- `zk init` creates the minimal core template and reference library without initializing or modifying Git. Optional templates supply additional fields.
-- `zk init --agent-skills` may install bundled archive-local skills. Installed skills immediately become user-owned.
-- An explicit CLI archive path may select an archive outside the current directory.
-- Zettel live in one flat `zettel/` directory.
-- Archive-specific Typst presentation code lives in `lib/`.
-- `zk asset add/list/remove` manages opaque files under `assets/ID/`, creating directories lazily and retaining files after note removal.
-- Authors use explicit Typst paths. The engine does not inject asset helpers or discover transitive dependencies.
-- Source files are canonical. There is no persistent graph cache or metadata index.
-
-### Zettel
-
-- One `zettel/YYMMDDHHmm.typ` file is one node.
-- The filename establishes identity even when the contents are malformed.
-- Metadata uses configurable direct top-level Typst forms in any order and position among other source constructs.
-- One title with its ID label is required. Other metadata is a map of optional user-declared fields, with markup, string, and string-list values.
-- Removing template declarations disables extraction. There are no built-in additional fields. A missing template is created with only the core; an invalid one raises an error.
-- Imports, show rules, and presentation are user choices. Abstract content and ordinary document content are unrestricted Typst.
-- `zk new` replaces the parsed title label and strips declaring comments, preserving all other bytes without evaluating Typst.
-- Literal ten-digit `@ID` references create directed links.
-
-### Provider
-
-- Rust parses source with `typst-syntax` without evaluating Typst.
-- The provider eagerly retains all node metadata and grouped links.
-- Every link retains the byte range of each authored occurrence.
-- Closed-file source and syntax trees are discarded after extraction.
-- Open buffers retain incrementally updated sources and override disk files.
-- Public archive JSON results use data schema 2 envelopes shared by CLI and LSP queries.
-- `zk graph --format json` emits a versioned disk-backed snapshot.
-
-### Commands
-
-```text
-zk init [--agent-skills] [PATH]
-zk --archive <PATH> ...
-zk new
-zk remove <ID>
-zk asset add <ID> <SOURCE> [--name <RELATIVE-PATH>]
-zk asset list <ID>
-zk asset remove <ID> <RELATIVE-PATH>
-zk check
-zk query node|links|backlinks|search ...
-zk graph --format json
-zk lsp
-```
-
-### Language server
-
-- `zk lsp` handles archive metadata, links, reference completion, navigation, backlinks, queries, and archive-specific diagnostics.
-- Tinymist handles general Typst language intelligence and dictionary-member completion. Generic syntax diagnostics remain available in the CLI, not the archive language server.
-- Saved template changes atomically re-extract disk and open-buffer metadata using the new rules. Invalid reloads visibly report errors while retaining the previous live state.
-- Full-text document synchronization supplies live unsaved overlays.
-- LSP initialization advertises ZK protocol 2, data schema 2, and feature flags independently of the executable version.
-- Protocol-level tests use the real standard-input and standard-output transport.
+[System](SYSTEM.md) describes implemented capabilities and limitations. [Design](DESIGN.md) owns shared responsibilities and invariants; [contracts](contract/README.md) own exact source and interface definitions.
 
 ## Constraints
 
 - One machine writes the archive.
-- Note paths, the template path, title identity, and reference syntax are fixed in archive format 3. Comment declarations select bounded direct metadata forms.
-- IDs use local time with minute resolution and a ten-digit `YYMMDDHHmm` representation.
-- `zk` pins a supported Typst minor version because `typst-syntax` is not a stable independent protocol.
-- The archive remains relocatable and complete beneath its root.
-- Git is optional and never becomes canonical archive state.
-- The engine must remain useful while buffers and files are incomplete or malformed.
-- Editor clients remain separate repositories and releases.
-- Protocol versions are independent of executable, archive-format, and graph-schema versions.
+- Copying the archive root preserves all canonical state.
+- Source is canonical; Git and derived graph state are not.
+- The engine remains useful while files and buffers are incomplete or malformed.
+- Archive semantics come from bounded authored source forms, not Typst evaluation.
+- The supported Typst parser generation is pinned because its syntax API is not an independent stable protocol.
+- Editors and their releases remain separate from the engine.
+- Executable, archive, data, and editor-protocol versions have independent meanings.
+- Breaking changes to deployed archives require explicit, reviewable migration.
 
-## Non-goals for version one
+## Non-goals for the initial scope
 
-- Publishing or compiling the archive
+- Publishing, compiling, or visualizing the archive
 - Full dependency resolution or aggregate Typst compilation
-- Typst-evaluated authoritative metadata
-- Graph visualization
-- A TUI or picker owned by `zk`
-- Editor-specific code or presentation
-- Transclusion
-- Structure-note-specific tooling
+- Evaluated Typst metadata as authoritative archive state
+- A TUI, picker, or editor-specific presentation owned by `zk`
+- Transclusion or structure-note-specific tooling
 - Multiple structural node types
-- Agent orchestration or autonomous organization owned by `zk`
-- Interactive metadata forms
+- Agent orchestration, autonomous organization, or interactive metadata forms
 - A custom query language
 - A shared daemon or language-neutral live stream
 - Persistent derived graph or metadata caches
 
 ## Quality expectations
 
-- Source parsing, metadata extraction, and graph construction use one shared implementation across CLI and LSP consumers.
+- CLI and LSP share extraction, validation, graph construction, and metadata matching.
+- Diagnostics identify exact authored ranges when a relevant range exists.
+- Stale disk or parse work cannot overwrite open source.
+- Commands remain noninteractive and scriptable.
+- Creation, removal, and configuration changes do not silently rewrite existing Zettel or presentation code.
 - The repository contains no editor-specific client code or tests.
-- Diagnostics point to exact authored source ranges whenever a relevant range exists.
-- Open-buffer changes cannot be overwritten by stale disk or parse results.
-- Commands are noninteractive and scriptable.
-- Metadata search uses one deterministic matching rule across CLI and LSP consumers.
-- Archive migrations are explicit and reviewable.
-- The provider does not silently rewrite Zettel bodies or the user-owned Typst library.
-- A compact eager graph remains practical at the 50,000-Zettel stress case.
+- A compact eager graph remains practical at the 50,000-Zettel stress case. Performance claims about the executable require measurements of the executable, not just prototypes.
 
 ## Success conditions
 
-Version one succeeds when:
+The initial scope succeeds when a user can:
 
-- a user can initialize an archive and create a correctly shaped Zettel;
-- shell commands can discover an archive or target it explicitly;
-- `zk lsp` can search metadata, complete and resolve references, and report backlinks against unsaved state;
-- archive metadata extraction respects the configured rules without enforcing presentation;
-- creation uses an editable archive-local template;
-- schema reloads preserve open source and reject stale results;
-- backlinks and reference locations update as buffers change;
-- `zk check` reports malformed metadata, mismatched IDs, and dangling links;
-- removal is blocked when incoming references exist;
-- metadata and graph queries work from the shell;
-- metadata search returns every matching node in deterministic order;
-- an external process can consume a versioned JSON graph snapshot;
-- clients can reject incompatible ZK protocol versions;
-- assets can be copied without clobbering, listed deterministically, and removed explicitly after their note disappears;
-- copying the archive root preserves all canonical state.
+- initialize an archive and create a correctly shaped Zettel from its editable template;
+- discover an archive from a working directory or select it explicitly;
+- retrieve metadata, follow links, and inspect backlinks through saved-state commands;
+- search, complete, and navigate references against unsaved editor state;
+- change tracked metadata rules without losing open source or accepting stale results;
+- inspect malformed metadata, identity mismatches, and dangling references;
+- remove a Zettel safely when no incoming references remain;
+- consume a versioned graph snapshot and reject incompatible interfaces;
+- attach files without clobbering, inspect them deterministically, and remove them explicitly after their Zettel disappears;
+- copy the root to preserve the complete archive.
 
-## Accepted but unimplemented
-
-- [Supplementary Git initialization](decisions/git-lifecycle.md) remains an accepted request. `zk init` does not yet invoke Git.
+Writing quality remains the owner's responsibility, distinct from passing integrity checks.
 
 ## Deferred questions
 
 - Controlled vocabulary and category policy
 - Structural roles inferred from or declared alongside graph position
 - Publication and selected-subgraph compilation
-- Authoritative Typst metadata and archive-wide Typst values
-- Shared live access for consumers outside one LSP process
-- Orphan asset-namespace warnings and asset-specific live queries
+- Authoritative evaluated metadata and archive-wide Typst values
+- Shared live access outside one LSP process
+- Orphan asset warnings and asset-specific live queries
 - Performance changes justified by measurements on a real archive

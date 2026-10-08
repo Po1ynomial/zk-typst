@@ -1,7 +1,5 @@
 # CLI contract
 
-Status: implemented in zk 0.3.0. See the [version matrix](README.md#status) and [System](../SYSTEM.md) for flows and limitations.
-
 ## Invocation and archive selection
 
 ```text
@@ -65,11 +63,17 @@ Unknown manifest properties, including earlier metadata tables and template-path
 = Untitled <new>
 ```
 
-Filename identity, exactly one direct level-one title with its ID label, and literal ten-digit links are independent of the template's metadata declarations. The template's title label is a creation placeholder; any syntactically valid label is accepted. Notes must use their filename ID instead.
+Canonical Zettel occupy one flat `zettel/` directory, with paths `zettel/YYMMDDHHmm.typ`. IDs contain exactly ten ASCII decimal digits and represent valid calendar timestamps. `YY` is interpreted as 2000 plus the two-digit year, so the supported century is 2000 through 2099. The filename establishes identity even when the contents are malformed. Filename identity, exactly one direct level-one title with its ID label, and literal ten-digit links are independent of the template's metadata declarations. The template's title label is a creation placeholder; any syntactically valid label is accepted. Notes must use their filename ID instead.
+
+Saved graph discovery inspects only immediate entries under `zettel/`. Regular files with canonical filenames become nodes. Other regular files produce `archive.filename` diagnostics and no nodes. Directories, symlinks even to regular files, and special files produce `archive.layout` diagnostics and are not traversed. An unreadable canonical file or invalid UTF-8 source fails provider loading rather than producing a partial node. The archive root and `zettel/` directory may themselves resolve through symlinks during loading; this does not imply the stricter asset-command policy below.
+
+Each note source, template source, and rendered starter must fit within 4,294,967,295 UTF-8 bytes, the current unsigned 32-bit byte-range limit. Larger templates fail template validation; larger note sources fail provider loading or the relevant live update. These are operation failures, not integrity diagnostics. Available memory may impose a lower practical limit. These source-size limits do not apply to opaque asset bytes.
+
+Native references whose target is exactly ten ASCII decimal digits are reserved for archive links, including targets that are not valid calendar timestamps. Other native references remain ordinary Typst labels or bibliography citations. Labels unrelated to Zettel identity and bibliography keys must not use the reserved ten-digit namespace. Link extraction, grouping, and resolution are specified in the [data contract](data.md#link).
 
 ### Declaration comments
 
-Only `templates/zettel.typ` declares additional tracked metadata. A declaration is a standalone top-level line comment of this form:
+Only `templates/zettel.typ` declares additional tracked metadata. A metadata declaration defines a field's tracking rule in the template. A metadata occurrence is an authored use of that field in a Zettel; a metadata value is the retrieved data. Declarations and occurrences are distinct even when they use the same Typst element shape. A declaration is a standalone top-level line comment of this form:
 
 ```typst
 // @zk-field "summary" kind=markup
@@ -91,7 +95,7 @@ A declaration attaches to the next direct top-level element. Whitespace and ordi
 
 The callee or field-access target must be a direct Typst identifier. Markup may contain arbitrary Typst, retained as source rather than evaluated. Lists reject computed values, spreads, named arguments, and extra array-form arguments. Qualified calls, binding resolution, literal dictionaries, and evaluated values are unsupported. Every starter value must satisfy its inferred rule. Duplicate field names, overlapping call selectors even with different argument shapes, and overlapping field-access selectors are errors.
 
-The engine compiles these declarations into independent matchers. In notes, recognized elements may appear in any order and position at the direct top level among prose, imports, and styles. Notes do not need declaration comments; comments inside notes never define their schema. Each declared field may occur zero or one times. Absence is allowed; malformed or repeated recognized elements produce field-specific diagnostics and `null`. Without annotations, every node has `metadata: {}`. Removing an annotation disables tracking without rewriting existing notes.
+The engine compiles these declarations into independent matchers. In notes, metadata occurrences are recognized elements that may appear in any order and position at the direct top level among prose, imports, and styles. Notes do not need declaration comments; comments inside notes never define their schema. Each configured field may have zero or one occurrence. Absence is allowed; malformed or repeated occurrences produce field-specific diagnostics and `null` values. Without annotations, every node has `metadata: {}`. Removing an annotation disables tracking without rewriting existing notes.
 
 Abstract, keywords, and category are not built-in fields or initializer defaults. [An optional descriptive template](../../examples/templates/descriptive.typ) supplies those fields and their presentation helpers. Users may copy it into `templates/zettel.typ` or author their own. No command silently installs it.
 
@@ -103,13 +107,13 @@ A present template with Typst syntax errors, invalid core structure, or invalid 
 
 The template is an extraction dependency; imported implementations and the presentation library are not. `zk` does not evaluate imports or compile notes. Tinymist owns ordinary binding, import, and type validation.
 
-`--agent-skills` optionally installs the bundled skills under `.agents/skills/`. Installation is best-effort: conflicts and filesystem failures warn without failing canonical archive creation. Existing same-name skills remain untouched. Installed copies are user-owned and are not subsequently validated or refreshed. Initialization does not invoke Git, stage files, or create commits. Supplementary Git initialization is a separate accepted but unimplemented request.
+`--agent-skills` optionally installs the bundled skills under `.agents/skills/`. Installation is best-effort: conflicts and filesystem failures warn without failing canonical archive creation. Existing same-name skills remain untouched. Installed copies are user-owned and are not subsequently validated or refreshed.
 
 Successful initialization prints its root path. The path may be relative and reflect the supplied path spelling; consumers must not assume it is canonicalized.
 
 ## Creation and removal
 
-`new` allocates a local-time ten-digit `YYMMDDHHmm` ID. Occupied filenames cause allocation to advance one minute at a time within the supported century. The ID is the note's permanent address, not a mutable title or a guarantee of precise creation time.
+`new` allocates a local-time ten-digit `YYMMDDHHmm` ID. Occupied filenames cause allocation to advance one minute at a time; crossing the century of the starting local clock fails with ID-space exhaustion. The allocator formats the clock's year as two digits and does not reject clocks outside 2000 through 2099. Such clocks are unsupported and can produce IDs interpreted as a different year. The ID is the note's permanent address, not a mutable title or a guarantee of precise creation time.
 
 `new` re-reads the saved `templates/zettel.typ`. It replaces only the parsed core title-label range with the allocated ID and removes only successfully parsed declaration-comment ranges. All other bytes, including ordinary comments, indentation, line endings, and literal `{{id}}` text, remain unchanged. There is no general substitution language, script execution, or Typst evaluation. Imports are authored for the destination note's location.
 
