@@ -1,0 +1,39 @@
+name: Enhancement request
+description: Propose a change to engine behavior, workflows, or interfaces.
+labels: [enhancement, needs-triage]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and use case
+      description: What you are trying to do, and what the engine currently makes difficult. Describe the problem before the proposed mechanism.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What the engine, CLI, or LSP should do instead. Note which existing behavior would change.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and workarounds
+      description: What you do today, and why it is not enough. Existing commands or the descriptive template may already cover part of this.
+    validations:
+      required: false
+  - type: textarea
+    id: scope
+    attributes:
+      label: Relationship to project scope
+      description: "[Non-goals](../blob/main/docs/PROJECT.md) such as publishing, aggregate compilation, evaluated metadata, agent orchestration, or a custom query language are accepted constraints. If the request conflicts with one, explain what changed or why the constraint should be revisited."
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for this request.
+        - label: I read the [project scope and non-goals](../blob/main/docs/PROJECT.md).

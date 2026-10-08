@@ -17,9 +17,9 @@ lint:
 test *args:
     just _run test cargo test --locked "$@"
 
-# Check repository guides, agent instructions, and bundled skills.
+# Check repository guides, contribution rules, and bundled skills.
 docs:
-    just _run docs rumdl check README.md GLOSSARY.md docs skills
+    just _run docs rumdl check README.md GLOSSARY.md CONTRIBUTING.md docs skills
 
 # Capture once, print diagnostics only on failure, and preserve the exit status.
 [private]

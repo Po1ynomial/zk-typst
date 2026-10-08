@@ -1,0 +1,14 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/Po1ynomial/zk-typst/blob/main/README.md
+    about: Introduction, basic use, and navigation of guides, decisions, and research.
+  - name: Contracts and compatibility
+    url: https://github.com/Po1ynomial/zk-typst/blob/main/docs/contract/README.md
+    about: Authoritative CLI, LSP, and data-schema behavior with the current version table.
+  - name: Project scope and non-goals
+    url: https://github.com/Po1ynomial/zk-typst/blob/main/docs/PROJECT.md
+    about: Goals, constraints, and accepted exclusions before proposing changes.
+  - name: System guide and limitations
+    url: https://github.com/Po1ynomial/zk-typst/blob/main/docs/SYSTEM.md
+    about: Implemented capabilities, workflows, inspection commands, and known limitations.

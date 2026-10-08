@@ -110,7 +110,7 @@ Set the client workspace to the archive root and configure Tinymist's Typst proj
 
 The client must synchronize open note buffers and deliver saved-file notifications for notes, the manifest, and the template. Enable dynamic watched-file registration when supported, or arrange equivalent notifications in the client. The [LSP contract](contract/lsp.md#source-synchronization-and-watched-files) owns exact events and source precedence. Verify compatibility through [version discovery](contract/README.md#versions-and-compatibility), not executable-version assumptions.
 
-Use archive completion and navigation from `zk`, and general Typst intelligence from Tinymist. The client owns request routing and how results from both servers are presented. For a Neovim client, [zk.nvim](https://github.com/Po1ynomial/zk.nvim) owns installation, configuration, and editor integration tests in its separate repository.
+Use archive completion and navigation from `zk`, and general Typst intelligence from Tinymist. The client owns request routing and how results from both servers are presented.
 
 ## Code entry points
 
@@ -181,7 +181,9 @@ These commands create files in the disposable archive. Normal integration tests 
 
 [CI](../.github/workflows/ci.yml) runs `just check` on Ubuntu 24.04 for pull requests, pushes to `main`, and manual dispatch. It uses the repository toolchain and the same pinned `just` and `rumdl` versions. Tools come from prebuilt releases with checksum verification; actions are pinned to commit SHAs.
 
-The job uses read-only permissions, does not persist checkout credentials, caches dependencies, restricts cache writes to `main`, cancels superseded runs, and has a 20-minute timeout. It does not publish releases or run a macOS or Windows matrix. Tool updates must keep workflow pins, the toolchain file, and setup instructions synchronized.
+The job uses read-only permissions, does not persist checkout credentials, caches dependencies, restricts cache writes to `main`, cancels superseded runs, and has a 20-minute timeout. It does not publish releases or run a macOS or Windows matrix. A separate [triage workflow](../.github/workflows/issue-triage.yml) applies the `needs-triage` label to opened and reopened issues with write access scoped to issues. Tool updates must keep workflow pins, the toolchain file, and setup instructions synchronized.
+
+Issue and pull-request templates under `.github/` route reports toward the contracts and scope. [CONTRIBUTING.md](../CONTRIBUTING.md) explains the reporting rules and triage labels.
 
 ## Current limitations
 

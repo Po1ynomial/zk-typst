@@ -37,6 +37,7 @@ zk --archive ~/notes check
 - [External contracts](docs/contract/README.md): authoritative contracts and current interface versions.
 - [Decisions](docs/adr/README.md): accepted choices and their rationale.
 - [Research](docs/research/README.md): recorded experiments, evidence, and limitations.
+- [Contributing](CONTRIBUTING.md): reporting problems, requesting changes, and code expectations.
 
 ## Usage
 

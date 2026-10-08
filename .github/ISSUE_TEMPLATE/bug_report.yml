@@ -1,0 +1,68 @@
+name: Bug report
+description: Report broken engine, CLI, LSP, or asset behavior against the implemented contracts.
+labels: [bug, needs-triage]
+body:
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Affected interface
+      options:
+        - CLI (new, remove, query, check, graph)
+        - LSP (`zk lsp`)
+        - Asset commands
+        - Bundled agent skill
+        - Template or archive loading
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: |
+        Paste the output of `zk --version`, and the LSP `capabilities.experimental.zk` object when the LSP is affected. Executable, archive format, data schema, and editor protocol versions are independent; see the [compatibility table](../blob/main/docs/contract/README.md).
+      placeholder: |
+        zk 0.3.1
+        archive format 3
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, editor or client, client LSP configuration, and Tinymist version when relevant.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed and expected behavior
+      description: What happened, and what the [CLI](../blob/main/docs/contract/cli.md) or [LSP](../blob/main/docs/contract/lsp.md) contract says should happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Minimal commands or archive contents that reproduce the behavior from an empty directory. Include an initialized archive when file layout matters.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: JSON envelopes, `zk check` output, diagnostics, or stderr. Attach large archives or files instead of pasting them.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked the [current versions and compatibility](../blob/main/docs/contract/README.md).
+        - label: I searched existing issues for this report.
+        - label: The behavior contradicts a contract, not only my expectation.

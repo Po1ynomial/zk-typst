@@ -1,0 +1,25 @@
+name: Usage question
+description: Ask how the engine, contracts, or workflows apply to your archive.
+labels: [question, needs-triage]
+body:
+  - type: textarea
+    id: attempted
+    attributes:
+      label: What you tried
+      description: Commands, configuration, or workflow you attempted and the result.
+    validations:
+      required: true
+  - type: textarea
+    id: documentation
+    attributes:
+      label: Documentation consulted
+      description: Which guide, [contract](../blob/main/docs/contract/README.md), or bundled skill you read, and where it fell short or confused you.
+    validations:
+      required: false
+  - type: textarea
+    id: blocker
+    attributes:
+      label: Question
+      description: What you need to know to continue.
+    validations:
+      required: true

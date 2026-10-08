@@ -41,8 +41,8 @@ Saved schema changes must preserve open source and publish a coherent re-extract
 
 ## Consumers and repository boundaries
 
-The engine owns archive semantics, its CLI, provider, language server, Typst defaults, bundled skills, and protocol tests. Editor clients own UI, editor integration, and transient presentation. The engine and [zk.nvim](https://github.com/Po1ynomial/zk.nvim) have independent repositories and releases, with no submodule or umbrella repository.
+The engine owns archive semantics, its CLI, provider, language server, Typst defaults, bundled skills, and protocol tests. Editor clients own UI, editor integration, and transient presentation.
 
-Protocol changes must land compatibly before a released client requires them. Clients are responsible for checking supported interfaces and arranging saved-file notifications. Client repositories own editor integration tests against their supported engine releases; this repository tests the engine without running Neovim.
+Protocol changes must land compatibly before a released client requires them. Clients are responsible for checking supported interfaces and arranging saved-file notifications.
 
 Agent skills provide operating knowledge, not worker coordination, permissions, or live collaboration. Installed copies must remain usable independently of repository documentation. [Agent workers](adr/opt-in-agent-skills.md) records that boundary.
